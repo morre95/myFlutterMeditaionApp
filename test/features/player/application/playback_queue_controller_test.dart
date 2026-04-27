@@ -26,6 +26,16 @@ void main() {
     expect(controller.entries.first.source, same(firstSource));
   });
 
+  test('adds multiple sources with one queue update', () {
+    final controller = PlaybackQueueController();
+
+    final entries = controller.addAll([source('first'), source('second')]);
+
+    expect(entries, hasLength(2));
+    expect(controller.entries, hasLength(2));
+    expect(controller.entryById(entries.last.id), same(entries.last));
+  });
+
   test('removes and reorders queue entries', () {
     final controller = PlaybackQueueController()
       ..add(source('first'))

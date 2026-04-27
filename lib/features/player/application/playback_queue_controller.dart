@@ -12,14 +12,40 @@ class PlaybackQueueController extends ChangeNotifier {
   bool get isEmpty => _entries.isEmpty;
 
   QueueEntry add(AudioSource source) {
+    final entry = _createEntry(source);
+    _entries.add(entry);
+    notifyListeners();
+    return entry;
+  }
+
+  List<QueueEntry> addAll(Iterable<AudioSource> sources) {
+    final newEntries = sources.map(_createEntry).toList(growable: false);
+    if (newEntries.isEmpty) {
+      return const <QueueEntry>[];
+    }
+
+    _entries.addAll(newEntries);
+    notifyListeners();
+    return newEntries;
+  }
+
+  QueueEntry? entryById(String entryId) {
+    for (final entry in _entries) {
+      if (entry.id == entryId) {
+        return entry;
+      }
+    }
+
+    return null;
+  }
+
+  QueueEntry _createEntry(AudioSource source) {
     final entry = QueueEntry(
       id: 'queue-entry-${_nextEntryId++}',
       source: source,
       addedAt: DateTime.now(),
     );
 
-    _entries.add(entry);
-    notifyListeners();
     return entry;
   }
 
