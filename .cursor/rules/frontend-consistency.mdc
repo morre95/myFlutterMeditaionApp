@@ -1,0 +1,66 @@
+---
+description: Flutter UI consistency — reuse widgets, follow theme tokens, prevent visual drift
+alwaysApply: true
+---
+
+# Flutter UI Consistency
+
+Rules to prevent widget drift, visual patchwork, and reinventing what already exists.
+
+## Reuse Before Create
+
+- Before building any new widget, search the codebase for existing widgets that do something similar.
+- If an existing widget does most of what you need, extend it with constructor parameters instead of creating a parallel version.
+- If two widgets share the same core pattern, extract a shared widget and have both use it.
+- General-purpose widgets belong in shared UI; feature-specific widgets stay inside their feature.
+- Build common patterns once: audio queue rows, source pickers, empty states, loading indicators, error panels, permission prompts, and confirmation dialogs.
+
+## No Isolated Styling
+
+- Every new screen must visually match the rest of the app: spacing, cards, controls, typography, icons, and empty/error states.
+- Before styling a new screen, compare it with the most similar existing screen and match structure first.
+- Do not hardcode colors, font sizes, spacing, radii, or shadows when theme tokens can express the design.
+- Prefer `ThemeData`, `ColorScheme`, text themes, and shared widgets over one-off inline styling.
+
+## Design System as Source of Truth
+
+- The Flutter theme and shared UI package are the authority on appearance and behavior.
+- Use consistent spacing constants or theme extensions once they exist; do not invent near-duplicate values.
+- Use semantic colors from `ColorScheme`; avoid one-off hex values in widgets.
+- Use the app text theme; avoid arbitrary text styles unless the design system is being intentionally extended.
+- Keep controls, cards, dialogs, and list rows consistent across player, library, timer, and settings screens.
+
+## Pattern Consistency Across Pages
+
+- Similar screens follow the same layout pattern: settings, provider setup, library, queue, and timer screens should feel like one app.
+- Lists of audio files, cloud files, and queue entries should use the same row structure where possible.
+- Empty states should use consistent iconography, typography, and action placement.
+- Loading states should be consistent; do not mix unrelated spinner, skeleton, and shimmer patterns.
+- Error states should follow one pattern with clear recovery actions.
+
+## Shared Patterns to Extract
+
+When you see these patterns appearing in more than one place, extract them:
+
+- **Audio row**: title, source/provider, duration when known, and action controls.
+- **Source picker**: local files and cloud providers shown with consistent affordances.
+- **Confirmation dialog**: configurable title, message, confirm/cancel actions.
+- **Empty state**: icon, title, description, and optional action button.
+- **Screen header**: title, optional subtitle, and optional actions.
+- **Async list wrapper**: loading, empty, error, and content states.
+
+## Preventing Drift Over Time
+
+- When modifying an existing pattern, update all instances that use that pattern.
+- When adding a new screen, start from the most similar existing screen structure.
+- If shared UI does not support a needed variant, extend it intentionally instead of hand-building one-off alternatives.
+- If the same visual pattern exists in three or more places with slight variations, consolidate it.
+
+## Anti-Patterns
+
+- Building a new audio row when a shared queue/library row already exists.
+- Using different card padding for the same type of content across screens.
+- Creating a custom dialog for each feature instead of a shared configurable dialog.
+- Hardcoding colors or typography inside widgets instead of using the theme.
+- Each screen inventing its own loading, error, or empty state.
+- Calling platform plugins directly from widgets while the rest of the app uses services.

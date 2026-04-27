@@ -1,0 +1,59 @@
+---
+description: Flutter UI standards — widget structure, state management, services, errors, forms, navigation
+alwaysApply: true
+---
+
+# Flutter UI
+
+Standards for building maintainable, performant Flutter screens.
+
+## Widget Architecture
+
+- Widgets do one thing. If a widget handles playback orchestration, provider access, persistence, and rendering, split it.
+- Prefer composition: break large screens into smaller widgets that communicate through explicit state and callbacks.
+- Screen/controller layers load state and dispatch actions; presentational widgets render state and expose user intent.
+- Reusable widgets accept configuration through constructor parameters and should not hardcode feature-specific values.
+- Keep widget files small enough to understand quickly; extract sub-widgets or feature services when a file grows unwieldy.
+
+## State Management
+
+- Local widget state is for UI-only concerns: expanded sections, temporary inputs, selected tabs, and transient loading flags.
+- Shared app state covers playback, queue contents, timer status, selected bell, provider sessions, preferences, and library metadata.
+- Never duplicate playback or timer state across widgets; derive UI from the canonical controller/store.
+- Loading, empty, active, paused, completed, unavailable, and error states must be explicit.
+- Avoid optimistic mutations for file or cloud operations unless rollback behavior is clear and user-visible.
+
+## Services And Providers
+
+- UI must call typed services/repositories instead of directly invoking plugins, file APIs, or cloud SDKs.
+- Use one provider abstraction for local files and cloud files so queue and player logic do not care where audio comes from.
+- Keep pCloud, Google Drive, OneDrive, and Dropbox details inside provider adapters.
+- Playback services own player lifecycle, queue transitions, interruptions, and end-of-track handling.
+
+## Dart Types
+
+- Model queue entries, audio sources, provider files, timer sessions, and playback state with explicit Dart types.
+- Avoid `dynamic`; use typed models and parse external provider data at the boundary.
+- Prefer immutable state objects and clear enum/status types over nullable fields with hidden meaning.
+- Use type inference where it improves readability; annotate public APIs and complex return values.
+
+## Error Handling
+
+- Wrap async UI actions that touch files, playback, permissions, secure storage, or cloud providers.
+- Display errors in context: missing file, permission denied, cloud auth expired, network unavailable, unsupported format, or playback failure.
+- Logging is for debugging, not a substitute for user-facing recovery.
+- Maintain usable UI state after errors; do not leave blank screens or stuck controls.
+
+## Forms
+
+- Validate settings and provider inputs before saving.
+- Disable actions while async permission, auth, or picker flows are in progress to prevent duplicate requests.
+- Show field-level validation errors inline where forms exist.
+- Preserve user input on errors so retry is easy.
+
+## Navigation
+
+- Keep route definitions centralized.
+- Preserve playback and timer state across navigation.
+- Keep protected cloud-provider flows behind explicit auth/session checks.
+- Handle unknown routes with a safe fallback screen.

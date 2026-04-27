@@ -1,0 +1,49 @@
+---
+description: Project-level instructions — commands, code style, workflow, and architecture overview
+alwaysApply: true
+---
+
+# Project Instructions
+
+## Commands
+- Bootstrap app when needed: `flutter create .`
+- Get dependencies: `flutter pub get`
+- Format: `dart format .`
+- Analyze: `flutter analyze`
+- Test: `flutter test`
+- Run locally: `flutter run`
+- Build Android: `flutter build apk` or `flutter build appbundle`
+- Build iOS: `flutter build ios` from macOS with Xcode available
+
+## Code Style
+- Use Dart with Flutter's standard linting and formatting.
+- Prefer small widgets, immutable models, explicit state objects, and clear feature boundaries.
+- Keep platform-specific code behind services or adapters; do not scatter method channels or plugin calls through UI code.
+- Do not add dependencies until the Flutter app exists and the dependency is justified by a concrete feature.
+
+## Workflow
+- Run lint and tests before committing
+- Write descriptive commit messages in imperative mood
+- Create feature branches, never commit directly to main
+
+## Architecture
+- App target: a Flutter meditation app for Android and iOS.
+- Core features: `.wav` playback, user-managed queue, music mode, timer meditation mode, and an end bell.
+- Audio invariant: never modify source music files. Do not edit, transcode, normalize, tag, rename, move, delete, or rewrite user-selected `.wav` files.
+- Treat local files and cloud files as read-only audio sources. Store app metadata separately from the source files.
+- Use a provider abstraction for cloud sources. pCloud is the priority provider; Google Drive, OneDrive, and Dropbox should fit the same provider interface.
+- Keep UI, playback orchestration, file/source discovery, provider adapters, and persistence separated by feature/domain.
+- Suggested structure once the app exists: `lib/features/player/`, `lib/features/timer/`, `lib/features/library/`, `lib/features/cloud_sources/`, `lib/shared/`.
+
+## Platform / Environment
+- Development OS: Linux.
+- Framework: Flutter / Dart.
+- Package manager: `flutter pub`.
+- Mobile permissions must be explicit and minimal for local file access, cloud auth, and background/audio playback.
+- iOS builds require macOS and Xcode; do not claim iOS verification from Linux.
+
+## Gotchas
+- The app must not manipulate music files; queue entries should reference files or provider objects without rewriting them.
+- Cloud providers are sources, not a sync engine by default. Do not implement implicit upload, deletion, or mutation unless explicitly requested.
+- Timer bells are app-owned sound assets or user-selected read-only files; keep them separate from queued meditation music.
+- Prefer offline-tolerant metadata and clear user-facing errors when cloud files are unavailable.

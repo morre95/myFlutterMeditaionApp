@@ -1,0 +1,43 @@
+---
+description: Dart and Flutter standards for the meditation app
+globs: "{**/*.dart,pubspec.yaml,analysis_options.yaml}"
+alwaysApply: false
+---
+
+# Dart And Flutter
+
+## Dart Style
+
+- Follow `dart format` and Flutter lint conventions.
+- Prefer immutable data models and `const` constructors where practical.
+- Use descriptive names for playback, queue, timer, and provider concepts.
+- Keep async work cancellable or lifecycle-aware; do not let disposed widgets receive callbacks.
+
+## Flutter Structure
+
+- Keep widgets focused on rendering and user interaction.
+- Put playback, queue management, timers, permissions, file picking, cloud access, and persistence behind services or repositories.
+- Group code by feature: player, timer, library, cloud sources, settings, and shared UI.
+- Keep platform-specific code isolated behind interfaces so Android and iOS behavior can be tested separately.
+
+## Audio Playback
+
+- Support `.wav` playback as a first-class requirement.
+- Never modify source music files. Do not transcode, normalize, tag, rename, move, delete, or rewrite user audio.
+- Queue entries should reference a local file URI/path or a cloud provider object plus metadata stored by the app.
+- Separate music playback mode from timer meditation mode; the end bell belongs to timer mode and must not mutate queued music.
+- Handle interruptions, app lifecycle changes, and missing files with explicit user-facing states.
+
+## Sources And Cloud Providers
+
+- Treat local phone storage and cloud storage as read-only source providers.
+- pCloud is the primary cloud provider target.
+- Google Drive, OneDrive, and Dropbox should use the same provider abstraction instead of separate UI/business logic paths.
+- Store OAuth tokens and provider credentials only in secure platform storage.
+- Do not implement implicit upload, deletion, sync, or remote mutation unless explicitly requested.
+
+## Testing
+
+- Unit-test playback queue ordering, timer completion, bell selection, provider abstraction behavior, and error mapping.
+- Widget-test core screens for loading, empty, error, active playback, and timer states.
+- Mock platform plugins, file systems, and cloud providers in tests.

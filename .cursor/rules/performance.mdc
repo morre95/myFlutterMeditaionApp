@@ -1,0 +1,54 @@
+---
+description: Flutter performance guidelines — profile first, audio responsiveness, file/cloud I/O, rendering, caching
+alwaysApply: true
+---
+
+# Performance
+
+Guidelines for building performant applications without premature optimization.
+
+## Optimize Where It Matters
+
+- Profile before optimizing — don't guess where the bottleneck is
+- Optimize the critical path: app startup, library browsing, adding to queue, starting playback, timer completion, and cloud file access
+- Premature optimization is waste — write correct, clean code first, then optimize measured bottlenecks
+- The biggest gains usually come from reducing blocking I/O, avoiding unnecessary rebuilds, and keeping audio operations responsive
+
+## Audio Performance
+
+- Start playback without blocking the UI thread.
+- Keep queue transitions predictable and lightweight.
+- Avoid re-reading or reparsing metadata when cached app-owned metadata is sufficient.
+- Handle interruptions and lifecycle changes without leaking player instances.
+- Do not transcode or normalize files as a performance shortcut; source audio is read-only.
+
+## File And Cloud I/O
+
+- Do file picking, provider listing, metadata reads, and network calls asynchronously.
+- Page or incrementally load large cloud folders and local libraries.
+- Minimize provider round trips; fetch only metadata needed for display and playback.
+- Cache app-owned metadata with clear invalidation when a source file is missing or provider state changes.
+- Set timeouts and cancellation paths for cloud calls so the UI never hangs indefinitely.
+
+## Flutter Rendering
+
+- Use lazy lists for large libraries and cloud folders.
+- Debounce search and provider queries.
+- Minimize rebuilds by scoping listeners and state updates to the widgets that need them.
+- Use `const` widgets and stable keys where appropriate.
+- Keep expensive parsing, provider calls, and file operations out of `build` methods.
+
+## Caching
+
+- Cache at the right layer: in-memory playback state, persisted app metadata, provider metadata, and HTTP responses where supported
+- Cache invalidation is hard — use time-based expiry (TTL) as the default strategy
+- Cache reads that are frequent and expensive; don't cache cheap operations or rarely-accessed data
+- Document what's cached and how it's invalidated — stale data is a feature, not a bug, when it's intentional
+- Never use caching as a reason to modify source audio files
+
+## Async & Concurrency
+
+- Use async I/O for operations that wait on files, plugins, cloud providers, or secure storage
+- Run independent provider or metadata reads concurrently when it improves responsiveness and does not overload the provider
+- Use background-safe patterns for long-running work, but keep user-visible playback state accurate
+- Set timeouts on external calls and support cancellation where possible

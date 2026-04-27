@@ -1,0 +1,48 @@
+---
+description: Error handling standards — typed failures, no silent swallowing, user recovery, fail fast
+alwaysApply: true
+---
+
+# Error Handling
+
+Rules for consistent, debuggable, user-friendly error handling across the stack.
+
+## Typed Failures
+
+- Define a small set of domain failures and use them consistently across services and UI.
+- Use machine-readable codes for programmatic handling, such as `PERMISSION_DENIED`, `FILE_MISSING`, `UNSUPPORTED_AUDIO`, `CLOUD_AUTH_EXPIRED`, `NETWORK_UNAVAILABLE`, and `PLAYBACK_FAILED`.
+- Pair each failure with a safe user-facing message and, where possible, a recovery action.
+- Never expose raw stack traces, access tokens, full local paths, or provider internals in user-facing errors.
+
+## Domain Exceptions
+
+- Create a small set of custom exception/failure classes for app domains.
+- Services should convert plugin, file-system, and cloud-provider errors into domain failures.
+- UI should render domain failures consistently instead of parsing plugin/provider errors directly.
+- Keep provider-specific error mapping inside provider adapters.
+
+## No Silent Swallowing
+
+- Never use empty `catch` / `except` blocks that discard errors
+- Every caught exception must be either: re-raised, converted to a user-facing error, or explicitly logged with context
+- `catch (e) { /* ignore */ }` is never acceptable — if you think you need it, you're masking a bug
+- Log the original error before converting to a user-friendly message — debugging needs the real cause
+
+## Error Boundaries
+
+- Wrap external calls to platform plugins, files, cloud providers, secure storage, and audio playback with specific error handling.
+- Display errors to the user and maintain usable UI state.
+- Top-level Flutter error handling may log unexpected failures, but services should aim to return typed failures before errors reach that boundary.
+
+## Fail Fast, Fail Loudly
+
+- Validate inputs at system boundaries: file picker results, provider responses, timer forms, queue operations, and settings forms
+- Fail on the first error, don't accumulate partial results from invalid input
+- In development: surface errors visibly (console, toast, error page) — never hide them
+- In production: log safe context only, return safe user-facing messages, and avoid leaking file paths or provider details
+
+## Error Context
+
+- When logging errors, include the operation attempted, provider name when relevant, playback/timer state, and safe identifiers.
+- Wrap low-level errors with domain context: instead of "not found", return "The selected audio file is no longer available."
+- Use error codes that identify the source: `PCLOUD_AUTH_EXPIRED`, `LOCAL_FILE_MISSING`, `BELL_UNAVAILABLE`, not generic `ERROR` or `FAILED`.

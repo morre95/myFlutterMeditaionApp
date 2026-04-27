@@ -1,0 +1,61 @@
+---
+description: Mobile security standards — secrets, OAuth tokens, permissions, file access, dependency auditing
+alwaysApply: true
+---
+
+# Security
+
+Non-negotiable security practices. Every code change must be evaluated for security implications.
+
+## Secrets Management
+
+- Never hardcode secrets, API keys, tokens, passwords, or credentials in source code
+- Store provider tokens in platform secure storage, not plain preferences, logs, or config files
+- `.env` files and local signing credentials must be in `.gitignore` — provide examples with placeholders instead
+- Default values for secrets in configuration should be clearly marked as dev-only and must fail loudly in production
+- Rotate secrets immediately if they're ever exposed in a commit, log, or error message
+
+## Cloud Authentication
+
+- Use established provider auth flows such as OAuth 2.0; never homebrew cloud authentication.
+- Request the minimum provider scopes needed to browse and read selected audio files.
+- Tokens must have expiration/refresh handling and a clear re-authentication path.
+- Do not log access tokens, refresh tokens, authorization codes, file URLs, or provider error payloads that may contain secrets.
+- Keep pCloud, Google Drive, OneDrive, and Dropbox credentials scoped to their provider adapters.
+
+## Permissions
+
+- Request mobile permissions only when needed and explain why in user-facing copy.
+- Handle denied, restricted, and permanently denied permission states without crashing.
+- Do not rely on hidden UI controls for protection; service methods must still enforce read-only source behavior.
+- Never request broad storage or cloud scopes when file-picker or provider-scoped access is enough.
+
+## File And Provider Safety
+
+- Validate file selections before playback and surface unsupported formats clearly.
+- Treat paths, URIs, display names, and provider metadata as untrusted input.
+- Do not construct file paths with string concatenation; use platform/file APIs and provider identifiers.
+- Keep source audio read-only: no writes, deletes, moves, renames, metadata edits, transcoding, or normalization.
+- Store app metadata separately from user-owned files and remote provider objects.
+
+## Data Protection
+
+- Encrypt sensitive local app data where appropriate; always use secure storage for tokens.
+- Use HTTPS for cloud provider communication.
+- Avoid collecting unnecessary personal data. Meditation history and provider metadata should be optional and minimal.
+- Implement clear data deletion for app-owned metadata.
+- Sanitize user-facing errors; do not expose full local paths, tokens, or raw provider responses.
+
+## Local Logging
+
+- Logs must not include secrets, exact local file paths, provider access URLs, or private meditation history.
+- Debug logging should be disabled or reduced in release builds.
+- Crash reports must be scrubbed before including file/provider metadata.
+
+## Dependency Security
+
+- Keep dependencies updated — outdated packages are the most common attack vector
+- Audit dependencies for known vulnerabilities before adding them
+- Prefer well-maintained, widely-used packages over obscure alternatives
+- Pin dependency versions for reproducible builds
+- Prefer Flutter plugins with active maintenance, platform support, and clear privacy/security behavior.

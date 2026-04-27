@@ -1,0 +1,66 @@
+---
+description: Flutter testing standards — unit, widget, integration, test data, reliability
+alwaysApply: true
+---
+
+# Testing
+
+Standards for writing and maintaining Flutter tests.
+
+## Test Requirements
+
+- New features must include tests for the happy path and critical error paths
+- Bug fixes must include a regression test that reproduces the bug before the fix
+- Refactoring must not break existing tests — if tests need updating, that's part of the refactoring
+- Tests are code — they deserve the same quality standards: clear naming, no duplication, proper structure
+
+## Test Types
+
+- **Unit tests**: Test playback queue logic, timer state transitions, provider abstractions, metadata parsing, and error mapping. Mock platform plugins, file access, cloud providers, and audio players.
+- **Widget tests**: Test screens and widgets for loading, empty, error, active playback, paused playback, queue, permission, and timer-complete states.
+- **Integration tests**: Test critical mobile workflows sparingly, such as selecting a local file, adding to queue, starting playback, setting a timer, and hearing/triggering the bell behavior through app state.
+
+Prioritize: many unit tests > some integration tests > few E2E tests (testing pyramid).
+
+## Test Structure
+
+Follow Arrange-Act-Assert (AAA) pattern:
+```
+// Arrange: set up test data and dependencies
+// Act: call the function/endpoint being tested
+// Assert: verify the expected outcome
+```
+
+- One assertion per test (conceptually) — test one behavior, not many
+- Test names describe behavior: `adds_wav_file_to_queue_without_mutating_source` — not `test_queue` or `test1`
+- Group related tests by feature, service, widget, or state controller
+
+## What to Test
+
+- **Playback logic**: queue order, next/previous behavior, missing files, unsupported formats, lifecycle interruptions, and completion behavior.
+- **Timer logic**: duration validation, countdown, pause/resume/cancel, completion, and bell selection.
+- **Source providers**: local files, pCloud-first cloud abstraction, auth-expired states, network unavailable states, and read-only source behavior.
+- **UI behavior**: accessibility labels where relevant, loading/empty/error states, disabled actions during async work, and clear recovery actions.
+- **Edge cases**: empty queues, duplicate files, unavailable cloud files, revoked permissions, offline mode, and app background/foreground transitions.
+
+## What Not to Test
+
+- Framework internals
+- Trivial getters/setters with no logic
+- Third-party library behavior
+- Implementation details that may change — test behavior, not structure
+
+## Test Data
+
+- Each test creates its own data — don't share mutable state between tests
+- Use factories or builders for creating test data — don't copy-paste object literals
+- Use temporary files or in-memory fakes for audio/file tests; never rely on a user's real music library
+- Keep `.wav` fixtures tiny and purpose-built when binary fixtures are necessary
+- Never use production data in tests
+
+## Test Reliability
+
+- Tests must be deterministic — same input, same result, every time
+- No real sleeps or delays — use fake clocks, fake timers, or controlled streams
+- Tests must be independent — runnable in any order, individually or as a suite
+- Flaky tests are bugs — fix or delete them, don't add retry logic
