@@ -18,7 +18,11 @@ class AudioSource {
 
   final Duration? duration;
 
-  bool get isWav => displayName.toLowerCase().endsWith('.wav');
+  bool get isSupportedAudio {
+    const supported = {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac'};
+    final lower = displayName.toLowerCase();
+    return supported.any(lower.endsWith);
+  }
 
   AudioSource copyWith({
     String? id,

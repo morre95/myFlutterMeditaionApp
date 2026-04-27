@@ -2,19 +2,21 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../../shared/domain/audio_source.dart';
 
-abstract class LocalWavPicker {
-  Future<List<AudioSource>> pickWavFiles();
+const _supportedExtensions = ['wav', 'mp3', 'flac', 'ogg', 'm4a', 'aac'];
+
+abstract class LocalAudioFilePicker {
+  Future<List<AudioSource>> pickAudioFiles();
 }
 
-class FilePickerLocalWavPicker implements LocalWavPicker {
-  FilePickerLocalWavPicker({FilePickerClient? client})
+class FilePickerLocalAudioPicker implements LocalAudioFilePicker {
+  FilePickerLocalAudioPicker({FilePickerClient? client})
     : _client = client ?? const PlatformFilePickerClient();
 
   final FilePickerClient _client;
 
   @override
-  Future<List<AudioSource>> pickWavFiles() async {
-    final files = await _client.pickWavFiles();
+  Future<List<AudioSource>> pickAudioFiles() async {
+    final files = await _client.pickAudioFiles();
     return files.map(_toAudioSource).toList(growable: false);
   }
 
@@ -29,19 +31,19 @@ class FilePickerLocalWavPicker implements LocalWavPicker {
 }
 
 abstract class FilePickerClient {
-  Future<List<LocalPickedFile>> pickWavFiles();
+  Future<List<LocalPickedFile>> pickAudioFiles();
 }
 
 class PlatformFilePickerClient implements FilePickerClient {
   const PlatformFilePickerClient();
 
   @override
-  Future<List<LocalPickedFile>> pickWavFiles() async {
+  Future<List<LocalPickedFile>> pickAudioFiles() async {
     final result = await FilePicker.pickFiles(
       allowMultiple: true,
       type: FileType.custom,
-      allowedExtensions: const ['wav'],
-      dialogTitle: 'Select WAV files',
+      allowedExtensions: _supportedExtensions,
+      dialogTitle: 'Select audio files',
       withData: false,
       withReadStream: false,
     );
@@ -51,14 +53,19 @@ class PlatformFilePickerClient implements FilePickerClient {
     }
 
     return result.files
-        .where((file) => file.path != null && _isWav(file))
+        .where((file) => file.path != null && _isSupportedAudio(file))
         .map((file) => LocalPickedFile(name: file.name, path: file.path!))
         .toList(growable: false);
   }
 
-  bool _isWav(PlatformFile file) {
-    return file.extension?.toLowerCase() == 'wav' ||
-        file.name.toLowerCase().endsWith('.wav');
+  bool _isSupportedAudio(PlatformFile file) {
+    final ext = (file.extension ?? '').toLowerCase();
+    if (ext.isNotEmpty) {
+      return _supportedExtensions.contains(ext);
+    }
+    return _supportedExtensions.any(
+      (e) => file.name.toLowerCase().endsWith('.$e'),
+    );
   }
 }
 

@@ -9,7 +9,7 @@ import 'package:my_meditation_app/features/player/application/playback_queue_con
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 
 void main() {
-  testWidgets('adds picked wav files to the Music Mode queue', (tester) async {
+  testWidgets('adds picked audio files to the Music Mode queue', (tester) async {
     final queueController = PlaybackQueueController();
     final player = _FakeLocalAudioPlayer();
     final playbackController = LocalAudioPlaybackController(player: player);
@@ -18,7 +18,7 @@ void main() {
       MaterialApp(
         home: MusicModeScreen(
           queueController: queueController,
-          picker: const _FakeLocalWavPicker([
+          picker: const _FakeLocalAudioFilePicker([
             AudioSource(
               id: 'first',
               kind: AudioSourceKind.localFile,
@@ -37,14 +37,14 @@ void main() {
       ),
     );
 
-    expect(find.text('No WAV files queued yet.'), findsOneWidget);
+    expect(find.text('No audio files queued yet.'), findsOneWidget);
 
-    await tester.tap(find.text('Add .wav files'));
+    await tester.tap(find.text('Add audio files'));
     await tester.pump();
 
     expect(find.text('first.wav'), findsOneWidget);
     expect(find.text('second.wav'), findsOneWidget);
-    expect(find.text('Added 2 WAV files to the queue.'), findsOneWidget);
+    expect(find.text('Added 2 audio files to the queue.'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Play first.wav'));
     await tester.pump();
@@ -62,20 +62,20 @@ void main() {
     await tester.tap(find.text('Clear'));
     await tester.pump();
 
-    expect(find.text('No WAV files queued yet.'), findsOneWidget);
+    expect(find.text('No audio files queued yet.'), findsOneWidget);
 
     playbackController.dispose();
     queueController.dispose();
   });
 }
 
-class _FakeLocalWavPicker implements LocalWavPicker {
-  const _FakeLocalWavPicker(this.sources);
+class _FakeLocalAudioFilePicker implements LocalAudioFilePicker {
+  const _FakeLocalAudioFilePicker(this.sources);
 
   final List<AudioSource> sources;
 
   @override
-  Future<List<AudioSource>> pickWavFiles() async {
+  Future<List<AudioSource>> pickAudioFiles() async {
     return sources;
   }
 }

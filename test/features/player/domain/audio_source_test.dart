@@ -2,15 +2,30 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 
 void main() {
-  test('recognizes wav files by display name', () {
-    const source = AudioSource(
-      id: 'local-1',
-      kind: AudioSourceKind.localFile,
-      displayName: 'morning-meditation.WAV',
-      reference: '/music/morning-meditation.WAV',
-    );
+  group('isSupportedAudio', () {
+    for (final ext in ['wav', 'WAV', 'mp3', 'flac', 'ogg', 'm4a', 'aac']) {
+      test('recognizes .$ext files by display name', () {
+        final source = AudioSource(
+          id: 'local-1',
+          kind: AudioSourceKind.localFile,
+          displayName: 'morning-meditation.$ext',
+          reference: '/music/morning-meditation.$ext',
+        );
 
-    expect(source.isWav, isTrue);
+        expect(source.isSupportedAudio, isTrue);
+      });
+    }
+
+    test('rejects unsupported extension', () {
+      const source = AudioSource(
+        id: 'local-2',
+        kind: AudioSourceKind.localFile,
+        displayName: 'notes.txt',
+        reference: '/docs/notes.txt',
+      );
+
+      expect(source.isSupportedAudio, isFalse);
+    });
   });
 
   test('preserves read-only provider reference metadata', () {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../library/application/local_wav_picker_service.dart';
+import '../../library/application/local_wav_picker_service.dart' show FilePickerLocalAudioPicker, LocalAudioFilePicker;
 import '../../player/application/local_audio_playback_controller.dart';
 import '../../player/application/playback_queue_controller.dart';
 import '../../player/domain/queue_entry.dart';
@@ -9,14 +9,14 @@ class MusicModeScreen extends StatefulWidget {
   const MusicModeScreen({
     super.key,
     PlaybackQueueController? queueController,
-    LocalWavPicker? picker,
+    LocalAudioFilePicker? picker,
     LocalAudioPlaybackController? playbackController,
   }) : _queueController = queueController,
        _picker = picker,
        _playbackController = playbackController;
 
   final PlaybackQueueController? _queueController;
-  final LocalWavPicker? _picker;
+  final LocalAudioFilePicker? _picker;
   final LocalAudioPlaybackController? _playbackController;
 
   @override
@@ -25,7 +25,7 @@ class MusicModeScreen extends StatefulWidget {
 
 class _MusicModeScreenState extends State<MusicModeScreen> {
   late final PlaybackQueueController _queueController;
-  late final LocalWavPicker _picker;
+  late final LocalAudioFilePicker _picker;
   late final LocalAudioPlaybackController _playbackController;
   late final bool _ownsQueueController;
   late final bool _ownsPlaybackController;
@@ -39,7 +39,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     _ownsQueueController = widget._queueController == null;
     _ownsPlaybackController = widget._playbackController == null;
     _queueController = widget._queueController ?? PlaybackQueueController();
-    _picker = widget._picker ?? FilePickerLocalWavPicker();
+    _picker = widget._picker ?? FilePickerLocalAudioPicker();
     _playbackController =
         widget._playbackController ?? LocalAudioPlaybackController();
   }
@@ -62,7 +62,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     });
 
     try {
-      final sources = await _picker.pickWavFiles();
+      final sources = await _picker.pickAudioFiles();
       if (!mounted) {
         return;
       }
@@ -70,15 +70,15 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
       final entries = _queueController.addAll(sources);
       setState(() {
         _message = entries.isEmpty
-            ? 'No WAV files were selected.'
-            : 'Added ${entries.length} WAV file${entries.length == 1 ? '' : 's'} to the queue.';
+            ? 'No audio files were selected.'
+            : 'Added ${entries.length} audio file${entries.length == 1 ? '' : 's'} to the queue.';
       });
     } catch (_) {
       if (!mounted) {
         return;
       }
       setState(() {
-        _message = 'Could not select WAV files.';
+        _message = 'Could not select audio files.';
       });
     } finally {
       if (mounted) {
@@ -175,12 +175,12 @@ class _PickerPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Local WAV files',
+              'Local audio files',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
             const Text(
-              'Choose one or more local .wav files to add to the queue.',
+              'Choose one or more local audio files (WAV, MP3, FLAC, OGG, M4A, AAC) to add to the queue.',
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
@@ -191,7 +191,7 @@ class _PickerPanel extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.library_music),
-              label: Text(isPicking ? 'Selecting...' : 'Add .wav files'),
+              label: Text(isPicking ? 'Selecting...' : 'Add audio files'),
             ),
             if (message != null) ...[const SizedBox(height: 8), Text(message!)],
           ],
@@ -307,7 +307,7 @@ class _QueuePanel extends StatelessWidget {
             if (entries.isEmpty)
               const Padding(
                 padding: EdgeInsets.only(top: 8),
-                child: Text('No WAV files queued yet.'),
+                child: Text('No audio files queued yet.'),
               )
             else
               ...entries.map(
