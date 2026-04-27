@@ -29,6 +29,18 @@
 .pub-cache/
 .pub/
 /build/
+.metadata
+
+# macOS generated
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+
+# Windows generated
+**/windows/flutter/generated_plugin_registrant.cc
+**/windows/flutter/generated_plugin_registrant.h
+**/windows/flutter/generated_plugins.cmake
+
+# Binary archives
+*.zip
 
 # Android related
 **/android/**/gradle-wrapper.jar
