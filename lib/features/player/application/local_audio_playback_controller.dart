@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart' as ap;
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart' as just_audio;
 
 import '../domain/queue_entry.dart';
 
@@ -47,7 +48,7 @@ class LocalAudioPlaybackState {
 
 class LocalAudioPlaybackController extends ChangeNotifier {
   LocalAudioPlaybackController({LocalAudioPlayer? player})
-    : _player = player ?? JustAudioLocalPlayer() {
+    : _player = player ?? AudioPlayersLocalPlayer() {
     _completionSubscription = _player.completedStream.listen((completed) {
       if (completed && _state.currentEntry != null) {
         _setState(_state.copyWith(status: LocalPlaybackStatus.completed));
@@ -70,16 +71,26 @@ class LocalAudioPlaybackController extends ChangeNotifier {
       ),
     );
 
+    // #region agent log
+    void _log(String msg, Map<String, Object> d) { try { File('/home/cryptofarian/dart/myFlutterMeditaionApp/.cursor/debug-1ea603.log').writeAsStringSync('{"sessionId":"1ea603","runId":"post-fix","location":"local_audio_playback_controller.dart:play","message":"$msg","data":$d,"timestamp":${DateTime.now().millisecondsSinceEpoch}}\n', mode: FileMode.append, flush: true); } catch (_) {} }
+    _log('play called', {'reference': entry.source.reference});
+    // #endregion
     try {
       await _player.load(entry.source.reference);
       await _player.play();
+      // #region agent log
+      _log('play success', {});
+      // #endregion
       _setState(
         LocalAudioPlaybackState(
           status: LocalPlaybackStatus.playing,
           currentEntry: entry,
         ),
       );
-    } catch (_) {
+    } catch (e) {
+      // #region agent log
+      _log('play error', {'error': e.toString()});
+      // #endregion
       _setState(
         LocalAudioPlaybackState(
           status: LocalPlaybackStatus.error,
@@ -137,35 +148,36 @@ abstract class LocalAudioPlayer {
   void dispose();
 }
 
-class JustAudioLocalPlayer implements LocalAudioPlayer {
-  JustAudioLocalPlayer({just_audio.AudioPlayer? player})
-    : _player = player ?? just_audio.AudioPlayer();
+class AudioPlayersLocalPlayer implements LocalAudioPlayer {
+  AudioPlayersLocalPlayer({ap.AudioPlayer? player})
+    : _player = player ?? ap.AudioPlayer() {
+    unawaited(_player.setReleaseMode(ap.ReleaseMode.stop));
+  }
 
-  final just_audio.AudioPlayer _player;
-
-  @override
-  Stream<bool> get completedStream => _player.playerStateStream.map(
-    (state) => state.processingState == just_audio.ProcessingState.completed,
-  );
+  final ap.AudioPlayer _player;
 
   @override
-  Future<void> load(String path) {
-    return _player.setUrl(Uri.file(path).toString()).then((_) {});
+  Stream<bool> get completedStream =>
+      _player.onPlayerComplete.map((_) => true);
+
+  @override
+  Future<void> load(String path) async {
+    await _player.setSource(ap.DeviceFileSource(path));
   }
 
   @override
-  Future<void> play() {
-    return _player.play();
+  Future<void> play() async {
+    await _player.resume();
   }
 
   @override
-  Future<void> pause() {
-    return _player.pause();
+  Future<void> pause() async {
+    await _player.pause();
   }
 
   @override
-  Future<void> stop() {
-    return _player.stop();
+  Future<void> stop() async {
+    await _player.stop();
   }
 
   @override
