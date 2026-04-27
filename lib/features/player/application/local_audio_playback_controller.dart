@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart' as ap;
 import 'package:flutter/foundation.dart';
@@ -71,26 +70,16 @@ class LocalAudioPlaybackController extends ChangeNotifier {
       ),
     );
 
-    // #region agent log
-    void _log(String msg, Map<String, Object> d) { try { File('/home/cryptofarian/dart/myFlutterMeditaionApp/.cursor/debug-1ea603.log').writeAsStringSync('{"sessionId":"1ea603","runId":"post-fix","location":"local_audio_playback_controller.dart:play","message":"$msg","data":$d,"timestamp":${DateTime.now().millisecondsSinceEpoch}}\n', mode: FileMode.append, flush: true); } catch (_) {} }
-    _log('play called', {'reference': entry.source.reference});
-    // #endregion
     try {
       await _player.load(entry.source.reference);
       await _player.play();
-      // #region agent log
-      _log('play success', {});
-      // #endregion
       _setState(
         LocalAudioPlaybackState(
           status: LocalPlaybackStatus.playing,
           currentEntry: entry,
         ),
       );
-    } catch (e) {
-      // #region agent log
-      _log('play error', {'error': e.toString()});
-      // #endregion
+    } catch (_) {
       _setState(
         LocalAudioPlaybackState(
           status: LocalPlaybackStatus.error,
