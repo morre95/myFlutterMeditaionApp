@@ -98,9 +98,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
 
   Future<void> resume() async {
     if (_state.status != PlaylistPlaybackStatus.paused) return;
-    final entry = _currentEntry;
-    if (entry == null) return;
-    await _player.play(entry);
+    await _player.resume();
     _setState(_state.copyWith(status: PlaylistPlaybackStatus.playing));
   }
 

@@ -43,6 +43,26 @@ void main() {
 
     controller.dispose();
   });
+
+  test('tracks duration, position, and seeks within current track', () async {
+    final player = _FakeLocalAudioPlayer();
+    final controller = LocalAudioPlaybackController(player: player);
+
+    await controller.play(_entry('ocean'));
+    player.setDuration(const Duration(minutes: 3));
+    player.setPosition(const Duration(seconds: 42));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.state.duration, const Duration(minutes: 3));
+    expect(controller.state.position, const Duration(seconds: 42));
+
+    await controller.seek(const Duration(minutes: 2));
+
+    expect(player.seekPosition, const Duration(minutes: 2));
+    expect(controller.state.position, const Duration(minutes: 2));
+
+    controller.dispose();
+  });
 }
 
 QueueEntry _entry(String id) {
@@ -61,15 +81,26 @@ QueueEntry _entry(String id) {
 class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   final StreamController<bool> _completedController =
       StreamController<bool>.broadcast();
+  final StreamController<Duration> _positionController =
+      StreamController<Duration>.broadcast();
+  final StreamController<Duration> _durationController =
+      StreamController<Duration>.broadcast();
 
   String? loadedPath;
   int playCount = 0;
   int pauseCount = 0;
   int stopCount = 0;
+  Duration? seekPosition;
   bool disposed = false;
 
   @override
   Stream<bool> get completedStream => _completedController.stream;
+
+  @override
+  Stream<Duration> get positionStream => _positionController.stream;
+
+  @override
+  Stream<Duration> get durationStream => _durationController.stream;
 
   @override
   Future<void> load(String path) async {
@@ -87,8 +118,21 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   }
 
   @override
+  Future<void> seek(Duration position) async {
+    seekPosition = position;
+  }
+
+  @override
   Future<void> stop() async {
     stopCount++;
+  }
+
+  void setPosition(Duration position) {
+    _positionController.add(position);
+  }
+
+  void setDuration(Duration duration) {
+    _durationController.add(duration);
   }
 
   void complete() {
@@ -99,5 +143,7 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   void dispose() {
     disposed = true;
     unawaited(_completedController.close());
+    unawaited(_positionController.close());
+    unawaited(_durationController.close());
   }
 }

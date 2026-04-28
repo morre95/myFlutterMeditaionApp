@@ -25,8 +25,13 @@ Playlist _playlist(List<String> ids) => Playlist(
 class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   final StreamController<bool> _completedController =
       StreamController<bool>.broadcast();
+  final StreamController<Duration> _positionController =
+      StreamController<Duration>.broadcast();
+  final StreamController<Duration> _durationController =
+      StreamController<Duration>.broadcast();
 
   String? loadedPath;
+  int loadCount = 0;
   int playCount = 0;
   int stopCount = 0;
 
@@ -34,7 +39,14 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   Stream<bool> get completedStream => _completedController.stream;
 
   @override
+  Stream<Duration> get positionStream => _positionController.stream;
+
+  @override
+  Stream<Duration> get durationStream => _durationController.stream;
+
+  @override
   Future<void> load(String path) async {
+    loadCount++;
     loadedPath = path;
   }
 
@@ -47,6 +59,9 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   Future<void> pause() async {}
 
   @override
+  Future<void> seek(Duration position) async {}
+
+  @override
   Future<void> stop() async {
     stopCount++;
   }
@@ -56,6 +71,8 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   @override
   void dispose() {
     unawaited(_completedController.close());
+    unawaited(_positionController.close());
+    unawaited(_durationController.close());
   }
 }
 
@@ -120,10 +137,15 @@ void main() {
 
     expect(controller.state.status, PlaylistPlaybackStatus.paused);
     expect(controller.state.currentTrackIndex, 0);
+    expect(player.loadedPath, '/music/rain.wav');
+    expect(player.loadCount, 1);
 
     await controller.resume();
 
     expect(controller.state.status, PlaylistPlaybackStatus.playing);
+    expect(player.loadedPath, '/music/rain.wav');
+    expect(player.loadCount, 1);
+    expect(player.playCount, 2);
 
     controller.dispose();
     playback.dispose();

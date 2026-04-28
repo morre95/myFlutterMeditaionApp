@@ -160,6 +160,8 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
 
   Future<void> _stop() => _playlistPlaybackController.stop();
 
+  Future<void> _seek(Duration position) => _playbackController.seek(position);
+
   Future<void> _skipToTrack(int index) =>
       _playlistPlaybackController.skipToTrack(index);
 
@@ -201,6 +203,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
       body: AnimatedBuilder(
         animation: Listenable.merge([
           _playlistController,
+          _playbackController,
           _playlistPlaybackController,
         ]),
         builder: (context, _) {
@@ -229,11 +232,13 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
               const SizedBox(height: 12),
               _PlaybackPanel(
                 state: playbackState,
+                trackState: _playlistPlaybackController.trackState,
                 onPause: playbackState.canPause ? _pause : null,
                 onResume: playbackState.status == PlaylistPlaybackStatus.paused
                     ? _resume
                     : null,
                 onStop: playbackState.canStop ? _stop : null,
+                onSeek: _seek,
               ),
               if (selected != null) ...[
                 const SizedBox(height: 12),
@@ -390,15 +395,19 @@ enum _PlaylistAction { rename, delete }
 class _PlaybackPanel extends StatelessWidget {
   const _PlaybackPanel({
     required this.state,
+    required this.trackState,
     required this.onPause,
     required this.onResume,
     required this.onStop,
+    required this.onSeek,
   });
 
   final PlaylistPlaybackState state;
+  final LocalAudioPlaybackState trackState;
   final VoidCallback? onPause;
   final VoidCallback? onResume;
   final VoidCallback? onStop;
+  final ValueChanged<Duration> onSeek;
 
   @override
   Widget build(BuildContext context) {
@@ -421,8 +430,10 @@ class _PlaybackPanel extends StatelessWidget {
               const SizedBox(height: 4),
               Text('Now playing: ${currentTrack.source.displayName}'),
             ],
+            const SizedBox(height: 12),
+            _PlaybackTimeline(state: trackState, onSeek: onSeek),
             if (state.errorMessage != null) ...[
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
               Text(
                 state.errorMessage!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
@@ -464,6 +475,92 @@ class _PlaybackPanel extends StatelessWidget {
       PlaylistPlaybackStatus.error => 'Playback error.',
     };
   }
+}
+
+class _PlaybackTimeline extends StatefulWidget {
+  const _PlaybackTimeline({required this.state, required this.onSeek});
+
+  final LocalAudioPlaybackState state;
+  final ValueChanged<Duration> onSeek;
+
+  @override
+  State<_PlaybackTimeline> createState() => _PlaybackTimelineState();
+}
+
+class _PlaybackTimelineState extends State<_PlaybackTimeline> {
+  Duration? _dragPosition;
+
+  @override
+  void didUpdateWidget(covariant _PlaybackTimeline oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.state.currentEntry?.id != widget.state.currentEntry?.id) {
+      _dragPosition = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final duration = widget.state.duration;
+    final canSeek =
+        widget.state.currentEntry != null && duration > Duration.zero;
+    final position = _clampPosition(_dragPosition ?? widget.state.position);
+    final maxMilliseconds = canSeek ? duration.inMilliseconds.toDouble() : 1.0;
+    final value = canSeek ? position.inMilliseconds.toDouble() : 0.0;
+
+    return Column(
+      children: [
+        Slider(
+          value: value,
+          max: maxMilliseconds,
+          onChanged: canSeek
+              ? (value) {
+                  setState(() {
+                    _dragPosition = Duration(milliseconds: value.round());
+                  });
+                }
+              : null,
+          onChangeEnd: canSeek
+              ? (value) {
+                  final target = Duration(milliseconds: value.round());
+                  widget.onSeek(target);
+                  setState(() {
+                    _dragPosition = null;
+                  });
+                }
+              : null,
+        ),
+        Row(
+          children: [
+            Text(_formatDuration(position)),
+            const Spacer(),
+            Text(_formatDuration(duration)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Duration _clampPosition(Duration position) {
+    final duration = widget.state.duration;
+    if (position < Duration.zero) return Duration.zero;
+    if (duration > Duration.zero && position > duration) return duration;
+    return position;
+  }
+}
+
+String _formatDuration(Duration duration) {
+  final totalSeconds = duration.inSeconds;
+  final hours = totalSeconds ~/ Duration.secondsPerHour;
+  final minutes = (totalSeconds ~/ Duration.secondsPerMinute) % 60;
+  final seconds = totalSeconds % Duration.secondsPerMinute;
+
+  if (hours > 0) {
+    return '$hours:${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
+
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
 // ---------------------------------------------------------------------------

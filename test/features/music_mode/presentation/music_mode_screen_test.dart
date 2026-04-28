@@ -134,6 +134,21 @@ void main() {
     expect(find.text('Playing.'), findsOneWidget);
     expect(find.text('Now playing: rain.wav'), findsOneWidget);
 
+    player.setDuration(const Duration(minutes: 3));
+    player.setPosition(const Duration(seconds: 42));
+    await tester.pump();
+
+    expect(find.text('0:42'), findsOneWidget);
+    expect(find.text('3:00'), findsOneWidget);
+
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    slider.onChangeEnd?.call(
+      const Duration(minutes: 2).inMilliseconds.toDouble(),
+    );
+    await tester.pump();
+
+    expect(player.seekPosition, const Duration(minutes: 2));
+
     playbackController.dispose();
     controller.dispose();
   });
@@ -231,12 +246,23 @@ class _FakeLocalAudioFilePicker implements LocalAudioFilePicker {
 class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   final StreamController<bool> _completedController =
       StreamController<bool>.broadcast();
+  final StreamController<Duration> _positionController =
+      StreamController<Duration>.broadcast();
+  final StreamController<Duration> _durationController =
+      StreamController<Duration>.broadcast();
 
   String? loadedPath;
   int playCount = 0;
+  Duration? seekPosition;
 
   @override
   Stream<bool> get completedStream => _completedController.stream;
+
+  @override
+  Stream<Duration> get positionStream => _positionController.stream;
+
+  @override
+  Stream<Duration> get durationStream => _durationController.stream;
 
   @override
   Future<void> load(String path) async {
@@ -252,12 +278,27 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   Future<void> pause() async {}
 
   @override
+  Future<void> seek(Duration position) async {
+    seekPosition = position;
+  }
+
+  @override
   Future<void> stop() async {}
+
+  void setPosition(Duration position) {
+    _positionController.add(position);
+  }
+
+  void setDuration(Duration duration) {
+    _durationController.add(duration);
+  }
 
   void complete() => _completedController.add(true);
 
   @override
   void dispose() {
     unawaited(_completedController.close());
+    unawaited(_positionController.close());
+    unawaited(_durationController.close());
   }
 }
