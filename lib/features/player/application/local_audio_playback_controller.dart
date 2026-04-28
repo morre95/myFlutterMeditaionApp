@@ -146,8 +146,7 @@ class AudioPlayersLocalPlayer implements LocalAudioPlayer {
   final ap.AudioPlayer _player;
 
   @override
-  Stream<bool> get completedStream =>
-      _player.onPlayerComplete.map((_) => true);
+  Stream<bool> get completedStream => _player.onPlayerComplete.map((_) => true);
 
   @override
   Future<void> load(String path) async {

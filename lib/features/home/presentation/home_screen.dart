@@ -24,7 +24,8 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 16),
           _HomeFeatureCard(
             title: 'Music Mode',
-            description: 'Build a queue from read-only .wav meditation files.',
+            description:
+                'Create and play named playlists of read-only meditation audio.',
             icon: Icons.queue_music,
             onTap: () => _open(context, const MusicModeScreen()),
           ),
@@ -53,7 +54,7 @@ class HomeScreen extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               child: Text(
                 'Source audio files are treated as read-only. The app stores '
-                'queue metadata separately and never edits your music files.',
+                'playlist metadata separately and never edits your music files.',
                 style: TextStyle(color: colorScheme.onSecondaryContainer),
               ),
             ),

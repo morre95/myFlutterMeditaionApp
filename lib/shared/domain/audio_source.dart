@@ -1,5 +1,12 @@
 enum AudioSourceKind { localFile, pCloud, googleDrive, oneDrive, dropbox }
 
+AudioSourceKind _kindFromJson(String value) {
+  return AudioSourceKind.values.firstWhere(
+    (k) => k.name == value,
+    orElse: () => AudioSourceKind.localFile,
+  );
+}
+
 class AudioSource {
   const AudioSource({
     required this.id,
@@ -8,6 +15,17 @@ class AudioSource {
     required this.reference,
     this.duration,
   });
+
+  factory AudioSource.fromJson(Map<String, dynamic> json) {
+    final durationMs = json['durationMs'] as int?;
+    return AudioSource(
+      id: json['id'] as String,
+      kind: _kindFromJson(json['kind'] as String),
+      displayName: json['displayName'] as String,
+      reference: json['reference'] as String,
+      duration: durationMs != null ? Duration(milliseconds: durationMs) : null,
+    );
+  }
 
   final String id;
   final AudioSourceKind kind;
@@ -22,6 +40,16 @@ class AudioSource {
     const supported = {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac'};
     final lower = displayName.toLowerCase();
     return supported.any(lower.endsWith);
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'kind': kind.name,
+      'displayName': displayName,
+      'reference': reference,
+      if (duration != null) 'durationMs': duration!.inMilliseconds,
+    };
   }
 
   AudioSource copyWith({
