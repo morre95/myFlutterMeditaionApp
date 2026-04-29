@@ -178,8 +178,17 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
 
   Future<void> _seek(Duration position) => _playbackController.seek(position);
 
-  Future<void> _skipToTrack(int index) =>
-      _playlistPlaybackController.skipToTrack(index);
+  Future<void> _playFromTrack(Playlist playlist, int index) async {
+    final activeId = _playlistPlaybackController.state.activePlaylist?.id;
+    if (activeId == playlist.id) {
+      await _playlistPlaybackController.skipToTrack(index);
+    } else {
+      await _playlistPlaybackController.playPlaylist(
+        playlist,
+        startIndex: index,
+      );
+    }
+  }
 
   Future<void> _removeTrack(Playlist playlist, PlaylistTrack track) async {
     final currentTrack = _playlistPlaybackController.state.currentTrack;
@@ -271,13 +280,13 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                       isPicking: _isPicking,
                       message: _message,
                       onPickFiles: _pickAndAddFiles,
-                      onSkipToTrack: _skipToTrack,
+                      onSkipToTrack: (index) => _playFromTrack(selected, index),
                       onRemoveTrack: (track) => _removeTrack(selected, track),
                       onReorder: (o, n) => _reorderTrack(selected, o, n),
                     ),
                   ],
                   const SizedBox(height: 12),
-                  // const _ReadOnlyNotice(),
+                  const _ReadOnlyNotice(),
                 ],
               );
             },
