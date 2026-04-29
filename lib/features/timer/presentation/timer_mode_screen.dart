@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/presentation/gradient_background.dart';
 import '../application/timer_controller.dart';
 import '../domain/bell_selection.dart';
 
@@ -29,83 +30,93 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Timer Mode')),
-      body: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) {
-          final state = _controller.state;
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const Text('Meditation timer'),
-              const SizedBox(height: 8),
-              const Text('Set a duration and choose a bell for session end.'),
-              const SizedBox(height: 20),
-              _TimerProgressCircle(
-                progress: state.progress,
-                remaining: state.remaining,
-              ),
-              const SizedBox(height: 20),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Duration (minutes)'),
-                      Slider(
-                        key: const Key('timer-duration-slider'),
-                        min: 1,
-                        max: 120,
-                        divisions: 119,
-                        label: '${state.settings.duration.inMinutes} min',
-                        value: state.settings.duration.inMinutes.toDouble(),
-                        onChanged: state.isRunning
-                            ? null
-                            : (value) {
-                                _controller.setDuration(
-                                  Duration(minutes: value.round()),
-                                );
-                              },
-                      ),
-                      Text('${state.settings.duration.inMinutes} minutes'),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        key: const Key('timer-bell-dropdown'),
-                        initialValue:
-                            state.settings.bell.name ?? builtInBells.first.id,
-                        decoration: const InputDecoration(
-                          labelText: 'Ending bell',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: builtInBells
-                            .map(
-                              (bell) => DropdownMenuItem<String>(
-                                value: bell.id,
-                                child: Text(bell.label),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          _controller.setBell(BellSelection.builtIn(value));
-                        },
-                      ),
-                    ],
+      extendBodyBehindAppBar: true,
+      body: GradientBackground(
+        child: SafeArea(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) {
+              final state = _controller.state;
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  const Text('Meditation timer'),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Set a duration and choose a bell for session end.',
                   ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              _buildControls(state),
-              if (state.errorMessage != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  state.errorMessage!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ],
-            ],
-          );
-        },
+                  const SizedBox(height: 20),
+                  _TimerProgressCircle(
+                    progress: state.progress,
+                    remaining: state.remaining,
+                  ),
+                  const SizedBox(height: 20),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Duration (minutes)'),
+                          Slider(
+                            key: const Key('timer-duration-slider'),
+                            min: 1,
+                            max: 120,
+                            divisions: 119,
+                            label: '${state.settings.duration.inMinutes} min',
+                            value: state.settings.duration.inMinutes.toDouble(),
+                            onChanged: state.isRunning
+                                ? null
+                                : (value) {
+                                    _controller.setDuration(
+                                      Duration(minutes: value.round()),
+                                    );
+                                  },
+                          ),
+                          Text('${state.settings.duration.inMinutes} minutes'),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            key: const Key('timer-bell-dropdown'),
+                            initialValue:
+                                state.settings.bell.name ??
+                                builtInBells.first.id,
+                            decoration: const InputDecoration(
+                              labelText: 'Ending bell',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: builtInBells
+                                .map(
+                                  (bell) => DropdownMenuItem<String>(
+                                    value: bell.id,
+                                    child: Text(bell.label),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              if (value == null) return;
+                              _controller.setBell(BellSelection.builtIn(value));
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildControls(state),
+                  if (state.errorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      state.errorMessage!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 
 import '../../player/application/local_audio_playback_controller.dart';
@@ -6,24 +8,32 @@ import '../domain/playlist.dart';
 
 enum PlaylistPlaybackStatus { idle, playing, paused, completed, error }
 
+enum PlaylistRepeatMode { off, repeatPlaylist, repeatOne }
+
 class PlaylistPlaybackState {
   const PlaylistPlaybackState({
     required this.status,
     this.activePlaylist,
     this.currentTrackIndex,
     this.errorMessage,
+    this.repeatMode = PlaylistRepeatMode.off,
+    this.shuffleEnabled = false,
   });
 
   const PlaylistPlaybackState.idle()
     : status = PlaylistPlaybackStatus.idle,
       activePlaylist = null,
       currentTrackIndex = null,
-      errorMessage = null;
+      errorMessage = null,
+      repeatMode = PlaylistRepeatMode.off,
+      shuffleEnabled = false;
 
   final PlaylistPlaybackStatus status;
   final Playlist? activePlaylist;
   final int? currentTrackIndex;
   final String? errorMessage;
+  final PlaylistRepeatMode repeatMode;
+  final bool shuffleEnabled;
 
   PlaylistTrack? get currentTrack {
     final p = activePlaylist;
@@ -50,6 +60,8 @@ class PlaylistPlaybackState {
     Playlist? activePlaylist,
     int? currentTrackIndex,
     String? errorMessage,
+    PlaylistRepeatMode? repeatMode,
+    bool? shuffleEnabled,
     bool clearError = false,
   }) {
     return PlaylistPlaybackState(
@@ -57,20 +69,29 @@ class PlaylistPlaybackState {
       activePlaylist: activePlaylist ?? this.activePlaylist,
       currentTrackIndex: currentTrackIndex ?? this.currentTrackIndex,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+      repeatMode: repeatMode ?? this.repeatMode,
+      shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
     );
   }
 }
 
 /// Plays all tracks in a [Playlist] in order, advancing automatically on completion.
 class PlaylistPlaybackController extends ChangeNotifier {
-  PlaylistPlaybackController({required LocalAudioPlaybackController player})
-    : _player = player {
+  PlaylistPlaybackController({
+    required LocalAudioPlaybackController player,
+    Random? random,
+  }) : _player = player,
+       _random = random ?? Random() {
     player.addListener(_onPlayerStateChanged);
   }
 
   final LocalAudioPlaybackController _player;
+  final Random _random;
 
   PlaylistPlaybackState _state = const PlaylistPlaybackState.idle();
+
+  /// Track indices in the order they should play. `null` means natural order.
+  List<int>? _shuffledOrder;
 
   PlaylistPlaybackState get state => _state;
 
@@ -80,11 +101,17 @@ class PlaylistPlaybackController extends ChangeNotifier {
     if (playlist.tracks.isEmpty) return;
 
     await _player.stop();
+    if (_state.shuffleEnabled) {
+      _shuffledOrder = _buildShuffledOrder(playlist.tracks.length, startIndex);
+    } else {
+      _shuffledOrder = null;
+    }
     _setState(
-      PlaylistPlaybackState(
+      _state.copyWith(
         status: PlaylistPlaybackStatus.playing,
         activePlaylist: playlist,
         currentTrackIndex: startIndex,
+        clearError: true,
       ),
     );
     await _playCurrentTrack();
@@ -104,7 +131,16 @@ class PlaylistPlaybackController extends ChangeNotifier {
 
   Future<void> stop() async {
     await _player.stop();
-    _setState(const PlaylistPlaybackState.idle());
+    final repeat = _state.repeatMode;
+    final shuffle = _state.shuffleEnabled;
+    _shuffledOrder = null;
+    _setState(
+      PlaylistPlaybackState(
+        status: PlaylistPlaybackStatus.idle,
+        repeatMode: repeat,
+        shuffleEnabled: shuffle,
+      ),
+    );
   }
 
   Future<void> skipToTrack(int index) async {
@@ -117,9 +153,66 @@ class PlaylistPlaybackController extends ChangeNotifier {
       _state.copyWith(
         status: PlaylistPlaybackStatus.playing,
         currentTrackIndex: index,
+        clearError: true,
       ),
     );
     await _playCurrentTrack();
+  }
+
+  Future<void> next() async {
+    final nextIndex = _nextIndex(
+      wrap: _state.repeatMode != PlaylistRepeatMode.off,
+    );
+    if (nextIndex == null) return;
+    await skipToTrack(nextIndex);
+  }
+
+  Future<void> previous() async {
+    final playlist = _state.activePlaylist;
+    if (playlist == null) return;
+
+    final position = _player.state.position;
+    if (position > const Duration(seconds: 3)) {
+      await _player.seek(Duration.zero);
+      return;
+    }
+
+    final prevIndex = _previousIndex(
+      wrap: _state.repeatMode != PlaylistRepeatMode.off,
+    );
+    if (prevIndex == null) {
+      await _player.seek(Duration.zero);
+      return;
+    }
+    await skipToTrack(prevIndex);
+  }
+
+  void setPlaylistRepeatMode(PlaylistRepeatMode mode) {
+    if (_state.repeatMode == mode) return;
+    _setState(_state.copyWith(repeatMode: mode));
+  }
+
+  void cyclePlaylistRepeatMode() {
+    final next = switch (_state.repeatMode) {
+      PlaylistRepeatMode.off => PlaylistRepeatMode.repeatPlaylist,
+      PlaylistRepeatMode.repeatPlaylist => PlaylistRepeatMode.repeatOne,
+      PlaylistRepeatMode.repeatOne => PlaylistRepeatMode.off,
+    };
+    setPlaylistRepeatMode(next);
+  }
+
+  void toggleShuffle() {
+    final enabling = !_state.shuffleEnabled;
+    final playlist = _state.activePlaylist;
+    if (enabling && playlist != null) {
+      _shuffledOrder = _buildShuffledOrder(
+        playlist.tracks.length,
+        _state.currentTrackIndex ?? 0,
+      );
+    } else {
+      _shuffledOrder = null;
+    }
+    _setState(_state.copyWith(shuffleEnabled: enabling));
   }
 
   void _onPlayerStateChanged() {
@@ -142,8 +235,16 @@ class PlaylistPlaybackController extends ChangeNotifier {
     final index = _state.currentTrackIndex;
     if (playlist == null || index == null) return;
 
-    final nextIndex = index + 1;
-    if (nextIndex >= playlist.tracks.length) {
+    if (_state.repeatMode == PlaylistRepeatMode.repeatOne) {
+      _setState(_state.copyWith(status: PlaylistPlaybackStatus.playing));
+      _playCurrentTrack();
+      return;
+    }
+
+    final nextIndex = _nextIndex(
+      wrap: _state.repeatMode == PlaylistRepeatMode.repeatPlaylist,
+    );
+    if (nextIndex == null) {
       _setState(
         _state.copyWith(
           status: PlaylistPlaybackStatus.completed,
@@ -160,6 +261,52 @@ class PlaylistPlaybackController extends ChangeNotifier {
       ),
     );
     _playCurrentTrack();
+  }
+
+  int? _nextIndex({required bool wrap}) {
+    final playlist = _state.activePlaylist;
+    final current = _state.currentTrackIndex;
+    if (playlist == null || current == null) return null;
+    final total = playlist.tracks.length;
+    if (total == 0) return null;
+
+    final order = _shuffledOrder;
+    if (order != null) {
+      final pos = order.indexOf(current);
+      if (pos < 0) return null;
+      if (pos + 1 < order.length) return order[pos + 1];
+      return wrap ? order.first : null;
+    }
+
+    if (current + 1 < total) return current + 1;
+    return wrap ? 0 : null;
+  }
+
+  int? _previousIndex({required bool wrap}) {
+    final playlist = _state.activePlaylist;
+    final current = _state.currentTrackIndex;
+    if (playlist == null || current == null) return null;
+    final total = playlist.tracks.length;
+    if (total == 0) return null;
+
+    final order = _shuffledOrder;
+    if (order != null) {
+      final pos = order.indexOf(current);
+      if (pos < 0) return null;
+      if (pos - 1 >= 0) return order[pos - 1];
+      return wrap ? order.last : null;
+    }
+
+    if (current - 1 >= 0) return current - 1;
+    return wrap ? total - 1 : null;
+  }
+
+  List<int> _buildShuffledOrder(int length, int startIndex) {
+    final remaining = [
+      for (var i = 0; i < length; i++)
+        if (i != startIndex) i,
+    ]..shuffle(_random);
+    return [startIndex, ...remaining];
   }
 
   Future<void> _playCurrentTrack() async {

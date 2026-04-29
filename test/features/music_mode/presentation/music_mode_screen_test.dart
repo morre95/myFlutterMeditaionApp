@@ -92,7 +92,9 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('plays a playlist and shows now-playing state', (tester) async {
+  testWidgets('plays a playlist and opens the now-playing page', (
+    tester,
+  ) async {
     final source = const AudioSource(
       id: 'rain',
       kind: AudioSourceKind.localFile,
@@ -126,16 +128,19 @@ void main() {
 
     expect(find.text('Morning'), findsAtLeast(1));
 
-    // Tap the play icon next to the playlist.
+    // Tap the play icon next to the playlist; this navigates to the
+    // NowPlayingScreen.
     await tester.tap(find.byTooltip('Play Morning'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(player.loadedPath, '/music/rain.wav');
-    expect(find.text('Playing.'), findsOneWidget);
-    expect(find.text('Now playing: rain.wav'), findsOneWidget);
+    // NowPlayingScreen shows the track filename and playlist name.
+    expect(find.text('rain.wav'), findsAtLeast(1));
+    expect(find.text('Morning'), findsAtLeast(1));
 
     player.setDuration(const Duration(minutes: 3));
     player.setPosition(const Duration(seconds: 42));
+    await tester.pump();
     await tester.pump();
 
     expect(find.text('0:42'), findsOneWidget);
@@ -197,7 +202,7 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byTooltip('Play Nature'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(player.loadedPath, '/music/rain.wav');
 
@@ -207,7 +212,7 @@ void main() {
     await tester.pump();
 
     expect(player.loadedPath, '/music/forest.wav');
-    expect(find.text('Now playing: forest.wav'), findsOneWidget);
+    expect(find.text('forest.wav'), findsAtLeast(1));
 
     playbackController.dispose();
     controller.dispose();

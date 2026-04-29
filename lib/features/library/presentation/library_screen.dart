@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/presentation/gradient_background.dart';
+
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});
 
@@ -7,22 +9,30 @@ class LibraryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Library')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: const [
-          _SourceCard(
-            title: 'Local phone storage',
-            description: 'Pick .wav files from the device without moving them.',
+      extendBodyBehindAppBar: true,
+      body: GradientBackground(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: const [
+              _SourceCard(
+                title: 'Local phone storage',
+                description:
+                    'Pick .wav files from the device without moving them.',
+              ),
+              _SourceCard(
+                title: 'pCloud',
+                description:
+                    'Primary cloud source target for future integration.',
+              ),
+              _SourceCard(
+                title: 'Google Drive, OneDrive, Dropbox',
+                description:
+                    'Future providers using the same source abstraction.',
+              ),
+            ],
           ),
-          _SourceCard(
-            title: 'pCloud',
-            description: 'Primary cloud source target for future integration.',
-          ),
-          _SourceCard(
-            title: 'Google Drive, OneDrive, Dropbox',
-            description: 'Future providers using the same source abstraction.',
-          ),
-        ],
+        ),
       ),
     );
   }

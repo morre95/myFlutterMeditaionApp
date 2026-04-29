@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/presentation/gradient_background.dart';
 import '../../library/application/local_wav_picker_service.dart'
     show FilePickerLocalAudioPicker, LocalAudioFilePicker;
 import '../../player/application/local_audio_playback_controller.dart';
@@ -8,6 +9,8 @@ import '../../playlists/application/playlist_playback_controller.dart';
 import '../../playlists/domain/playlist.dart';
 import '../../playlists/domain/playlist_repository.dart';
 import '../../playlists/infrastructure/shared_preferences_playlist_repository.dart';
+import 'now_playing_screen.dart';
+import 'widgets/playback_timeline.dart';
 
 class MusicModeScreen extends StatefulWidget {
   const MusicModeScreen({
@@ -152,6 +155,19 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
 
   Future<void> _playPlaylist(Playlist playlist) async {
     await _playlistPlaybackController.playPlaylist(playlist);
+    if (!mounted) return;
+    _openNowPlaying();
+  }
+
+  void _openNowPlaying() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NowPlayingScreen(
+          playlistPlaybackController: _playlistPlaybackController,
+          playbackController: _playbackController,
+        ),
+      ),
+    );
   }
 
   Future<void> _pause() => _playlistPlaybackController.pause();
@@ -200,64 +216,73 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Music Mode')),
-      body: AnimatedBuilder(
-        animation: Listenable.merge([
-          _playlistController,
-          _playbackController,
-          _playlistPlaybackController,
-        ]),
-        builder: (context, _) {
-          if (_playlistController.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      extendBodyBehindAppBar: true,
+      body: GradientBackground(
+        child: SafeArea(
+          child: AnimatedBuilder(
+            animation: Listenable.merge([
+              _playlistController,
+              _playbackController,
+              _playlistPlaybackController,
+            ]),
+            builder: (context, _) {
+              if (_playlistController.isLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
-          final playlists = _playlistController.playlists;
-          final selectedId = _playlistController.selectedId;
-          final selected = _playlistController.selectedPlaylist;
-          final playbackState = _playlistPlaybackController.state;
+              final playlists = _playlistController.playlists;
+              final selectedId = _playlistController.selectedId;
+              final selected = _playlistController.selectedPlaylist;
+              final playbackState = _playlistPlaybackController.state;
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _PlaylistListPanel(
-                playlists: playlists,
-                selectedId: selectedId,
-                playbackState: playbackState,
-                onCreate: _createPlaylist,
-                onSelect: _playlistController.select,
-                onPlay: _playPlaylist,
-                onRename: _renamePlaylist,
-                onDelete: _deletePlaylist,
-              ),
-              const SizedBox(height: 12),
-              _PlaybackPanel(
-                state: playbackState,
-                trackState: _playlistPlaybackController.trackState,
-                onPause: playbackState.canPause ? _pause : null,
-                onResume: playbackState.status == PlaylistPlaybackStatus.paused
-                    ? _resume
-                    : null,
-                onStop: playbackState.canStop ? _stop : null,
-                onSeek: _seek,
-              ),
-              if (selected != null) ...[
-                const SizedBox(height: 12),
-                _TrackListPanel(
-                  playlist: selected,
-                  playbackState: playbackState,
-                  isPicking: _isPicking,
-                  message: _message,
-                  onPickFiles: _pickAndAddFiles,
-                  onSkipToTrack: _skipToTrack,
-                  onRemoveTrack: (track) => _removeTrack(selected, track),
-                  onReorder: (o, n) => _reorderTrack(selected, o, n),
-                ),
-              ],
-              const SizedBox(height: 12),
-              const _ReadOnlyNotice(),
-            ],
-          );
-        },
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _PlaylistListPanel(
+                    playlists: playlists,
+                    selectedId: selectedId,
+                    playbackState: playbackState,
+                    onCreate: _createPlaylist,
+                    onSelect: _playlistController.select,
+                    onPlay: _playPlaylist,
+                    onRename: _renamePlaylist,
+                    onDelete: _deletePlaylist,
+                  ),
+                  const SizedBox(height: 12),
+                  _PlaybackPanel(
+                    state: playbackState,
+                    trackState: _playlistPlaybackController.trackState,
+                    onPause: playbackState.canPause ? _pause : null,
+                    onResume:
+                        playbackState.status == PlaylistPlaybackStatus.paused
+                        ? _resume
+                        : null,
+                    onStop: playbackState.canStop ? _stop : null,
+                    onSeek: _seek,
+                    onOpenNowPlaying: playbackState.activePlaylist != null
+                        ? _openNowPlaying
+                        : null,
+                  ),
+                  if (selected != null) ...[
+                    const SizedBox(height: 12),
+                    _TrackListPanel(
+                      playlist: selected,
+                      playbackState: playbackState,
+                      isPicking: _isPicking,
+                      message: _message,
+                      onPickFiles: _pickAndAddFiles,
+                      onSkipToTrack: _skipToTrack,
+                      onRemoveTrack: (track) => _removeTrack(selected, track),
+                      onReorder: (o, n) => _reorderTrack(selected, o, n),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  // const _ReadOnlyNotice(),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -400,6 +425,7 @@ class _PlaybackPanel extends StatelessWidget {
     required this.onResume,
     required this.onStop,
     required this.onSeek,
+    required this.onOpenNowPlaying,
   });
 
   final PlaylistPlaybackState state;
@@ -408,59 +434,75 @@ class _PlaybackPanel extends StatelessWidget {
   final VoidCallback? onResume;
   final VoidCallback? onStop;
   final ValueChanged<Duration> onSeek;
+  final VoidCallback? onOpenNowPlaying;
 
   @override
   Widget build(BuildContext context) {
     final currentTrack = state.currentTrack;
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Playback', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(_statusText),
-            if (state.activePlaylist != null) ...[
-              const SizedBox(height: 4),
-              Text('Playlist: ${state.activePlaylist!.name}'),
-            ],
-            if (currentTrack != null) ...[
-              const SizedBox(height: 4),
-              Text('Now playing: ${currentTrack.source.displayName}'),
-            ],
-            const SizedBox(height: 12),
-            _PlaybackTimeline(state: trackState, onSeek: onSeek),
-            if (state.errorMessage != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                state.errorMessage!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpenNowPlaying,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Playback',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  if (onOpenNowPlaying != null)
+                    const Icon(Icons.open_in_full, size: 18),
+                ],
               ),
-            ],
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: onPause,
-                  icon: const Icon(Icons.pause),
-                  label: const Text('Pause'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: onResume,
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('Resume'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: onStop,
-                  icon: const Icon(Icons.stop),
-                  label: const Text('Stop'),
+              const SizedBox(height: 8),
+              Text(_statusText),
+              if (state.activePlaylist != null) ...[
+                const SizedBox(height: 4),
+                Text('Playlist: ${state.activePlaylist!.name}'),
+              ],
+              if (currentTrack != null) ...[
+                const SizedBox(height: 4),
+                Text('Now playing: ${currentTrack.source.displayName}'),
+              ],
+              const SizedBox(height: 12),
+              PlaybackTimeline(state: trackState, onSeek: onSeek),
+              if (state.errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  state.errorMessage!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ],
-            ),
-          ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: onPause,
+                    icon: const Icon(Icons.pause),
+                    label: const Text('Pause'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: onResume,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Resume'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: onStop,
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Stop'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -475,92 +517,6 @@ class _PlaybackPanel extends StatelessWidget {
       PlaylistPlaybackStatus.error => 'Playback error.',
     };
   }
-}
-
-class _PlaybackTimeline extends StatefulWidget {
-  const _PlaybackTimeline({required this.state, required this.onSeek});
-
-  final LocalAudioPlaybackState state;
-  final ValueChanged<Duration> onSeek;
-
-  @override
-  State<_PlaybackTimeline> createState() => _PlaybackTimelineState();
-}
-
-class _PlaybackTimelineState extends State<_PlaybackTimeline> {
-  Duration? _dragPosition;
-
-  @override
-  void didUpdateWidget(covariant _PlaybackTimeline oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    if (oldWidget.state.currentEntry?.id != widget.state.currentEntry?.id) {
-      _dragPosition = null;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final duration = widget.state.duration;
-    final canSeek =
-        widget.state.currentEntry != null && duration > Duration.zero;
-    final position = _clampPosition(_dragPosition ?? widget.state.position);
-    final maxMilliseconds = canSeek ? duration.inMilliseconds.toDouble() : 1.0;
-    final value = canSeek ? position.inMilliseconds.toDouble() : 0.0;
-
-    return Column(
-      children: [
-        Slider(
-          value: value,
-          max: maxMilliseconds,
-          onChanged: canSeek
-              ? (value) {
-                  setState(() {
-                    _dragPosition = Duration(milliseconds: value.round());
-                  });
-                }
-              : null,
-          onChangeEnd: canSeek
-              ? (value) {
-                  final target = Duration(milliseconds: value.round());
-                  widget.onSeek(target);
-                  setState(() {
-                    _dragPosition = null;
-                  });
-                }
-              : null,
-        ),
-        Row(
-          children: [
-            Text(_formatDuration(position)),
-            const Spacer(),
-            Text(_formatDuration(duration)),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Duration _clampPosition(Duration position) {
-    final duration = widget.state.duration;
-    if (position < Duration.zero) return Duration.zero;
-    if (duration > Duration.zero && position > duration) return duration;
-    return position;
-  }
-}
-
-String _formatDuration(Duration duration) {
-  final totalSeconds = duration.inSeconds;
-  final hours = totalSeconds ~/ Duration.secondsPerHour;
-  final minutes = (totalSeconds ~/ Duration.secondsPerMinute) % 60;
-  final seconds = totalSeconds % Duration.secondsPerMinute;
-
-  if (hours > 0) {
-    return '$hours:${minutes.toString().padLeft(2, '0')}:'
-        '${seconds.toString().padLeft(2, '0')}';
-  }
-
-  return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
 // ---------------------------------------------------------------------------

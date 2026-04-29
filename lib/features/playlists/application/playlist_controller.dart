@@ -80,15 +80,9 @@ class PlaylistController extends ChangeNotifier {
     final index = _indexOf(playlistId);
     if (index < 0) return [];
 
-    final newTracks =
-        sources
-            .map(
-              (s) => PlaylistTrack(
-                id: 'track-${_nextTrackId++}',
-                source: s,
-              ),
-            )
-            .toList(growable: false);
+    final newTracks = sources
+        .map((s) => PlaylistTrack(id: 'track-${_nextTrackId++}', source: s))
+        .toList(growable: false);
 
     if (newTracks.isEmpty) return [];
 
@@ -103,8 +97,9 @@ class PlaylistController extends ChangeNotifier {
     final index = _indexOf(playlistId);
     if (index < 0) return;
 
-    final updated =
-        _playlists[index].tracks.where((t) => t.id != trackId).toList();
+    final updated = _playlists[index].tracks
+        .where((t) => t.id != trackId)
+        .toList();
     _playlists[index] = _playlists[index].copyWith(tracks: updated);
     await _persist();
   }
