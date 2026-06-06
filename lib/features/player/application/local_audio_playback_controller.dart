@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart' as ap;
 import 'package:flutter/foundation.dart';
 
 import '../domain/queue_entry.dart';
+import 'playback_source_resolver.dart';
 
 enum LocalPlaybackStatus { idle, loading, playing, paused, completed, error }
 
@@ -56,8 +57,11 @@ class LocalAudioPlaybackState {
 }
 
 class LocalAudioPlaybackController extends ChangeNotifier {
-  LocalAudioPlaybackController({LocalAudioPlayer? player})
-    : _player = player ?? AudioPlayersLocalPlayer() {
+  LocalAudioPlaybackController({
+    LocalAudioPlayer? player,
+    PlaybackSourceResolver? resolver,
+  }) : _player = player ?? AudioPlayersLocalPlayer(),
+       _resolver = resolver ?? const LocalPlaybackSourceResolver() {
     _completionSubscription = _player.completedStream.listen((completed) {
       if (completed && _state.currentEntry != null) {
         _setState(
@@ -84,6 +88,7 @@ class LocalAudioPlaybackController extends ChangeNotifier {
   }
 
   final LocalAudioPlayer _player;
+  final PlaybackSourceResolver _resolver;
   late final StreamSubscription<bool> _completionSubscription;
   late final StreamSubscription<Duration> _positionSubscription;
   late final StreamSubscription<Duration> _durationSubscription;
@@ -103,7 +108,8 @@ class LocalAudioPlaybackController extends ChangeNotifier {
     );
 
     try {
-      await _player.load(entry.source.reference);
+      final media = await _resolver.resolve(entry.source);
+      await _player.load(media);
       await _player.play();
       _setState(
         LocalAudioPlaybackState(
@@ -196,7 +202,7 @@ abstract class LocalAudioPlayer {
 
   Stream<Duration> get durationStream;
 
-  Future<void> load(String path);
+  Future<void> load(PlayableMedia media);
 
   Future<void> play();
 
@@ -227,8 +233,12 @@ class AudioPlayersLocalPlayer implements LocalAudioPlayer {
   Stream<Duration> get durationStream => _player.onDurationChanged;
 
   @override
-  Future<void> load(String path) async {
-    await _player.setSource(ap.DeviceFileSource(path));
+  Future<void> load(PlayableMedia media) async {
+    final source = switch (media.kind) {
+      PlayableMediaKind.file => ap.DeviceFileSource(media.locator),
+      PlayableMediaKind.url => ap.UrlSource(media.locator),
+    };
+    await _player.setSource(source);
   }
 
   @override

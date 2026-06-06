@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/features/player/application/local_audio_playback_controller.dart';
+import 'package:my_meditation_app/features/player/application/playback_source_resolver.dart';
 import 'package:my_meditation_app/features/playlists/application/playlist_playback_controller.dart';
 import 'package:my_meditation_app/features/playlists/domain/playlist.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
@@ -45,9 +46,9 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   Stream<Duration> get durationStream => _durationController.stream;
 
   @override
-  Future<void> load(String path) async {
+  Future<void> load(PlayableMedia media) async {
     loadCount++;
-    loadedPath = path;
+    loadedPath = media.locator;
   }
 
   @override
