@@ -3,42 +3,17 @@ import 'package:flutter/material.dart';
 import '../application/pcloud_auth_controller.dart';
 import '../domain/pcloud_config.dart';
 
-/// Runs the full connect flow: collect credentials, log in, and — if the
-/// account uses 2FA — prompt for the authenticator code and complete login.
-///
-/// Returns null on success or cancellation, or a user-facing error message.
+/// Runs the connect flow: collect a pasted access token + region and validate
+/// it. Returns null on success or cancellation, or a user-facing error message.
 Future<String?> connectToPCloud(
   BuildContext context,
   PCloudAuthController auth,
 ) async {
-  final request = await showPCloudLoginDialog(context);
+  final request = await _showTokenDialog(context);
   if (request == null) return null;
-
   try {
-    await auth.login(
-      email: request.email,
-      password: request.password,
-      region: request.region,
-    );
+    await auth.connectWithToken(token: request.token, region: request.region);
     return null;
-  } on PCloudTfaRequiredException catch (tfa) {
-    if (!context.mounted) return null;
-    final code = await showPCloudCodeDialog(context);
-    if (code == null) return null;
-    try {
-      await auth.verifyTfaCode(
-        email: request.email,
-        password: request.password,
-        region: request.region,
-        code: code,
-        token: tfa.token,
-      );
-      return null;
-    } on PCloudException catch (e) {
-      return e.message;
-    } catch (_) {
-      return 'Could not verify the code.';
-    }
   } on PCloudException catch (e) {
     return e.message;
   } catch (_) {
@@ -46,53 +21,41 @@ Future<String?> connectToPCloud(
   }
 }
 
-class PCloudLoginRequest {
-  const PCloudLoginRequest({
-    required this.email,
-    required this.password,
-    required this.region,
-  });
+class _TokenRequest {
+  const _TokenRequest({required this.token, required this.region});
 
-  final String email;
-  final String password;
+  final String token;
   final PCloudRegion region;
 }
 
-/// Prompts for pCloud email, password, and data region. Returns null if
-/// cancelled.
-Future<PCloudLoginRequest?> showPCloudLoginDialog(BuildContext context) {
-  return showDialog<PCloudLoginRequest>(
+Future<_TokenRequest?> _showTokenDialog(BuildContext context) {
+  return showDialog<_TokenRequest>(
     context: context,
-    builder: (_) => const _PCloudLoginDialog(),
+    builder: (_) => const _PCloudTokenDialog(),
   );
 }
 
-class _PCloudLoginDialog extends StatefulWidget {
-  const _PCloudLoginDialog();
+class _PCloudTokenDialog extends StatefulWidget {
+  const _PCloudTokenDialog();
 
   @override
-  State<_PCloudLoginDialog> createState() => _PCloudLoginDialogState();
+  State<_PCloudTokenDialog> createState() => _PCloudTokenDialogState();
 }
 
-class _PCloudLoginDialogState extends State<_PCloudLoginDialog> {
-  final _email = TextEditingController();
-  final _password = TextEditingController();
+class _PCloudTokenDialogState extends State<_PCloudTokenDialog> {
+  final _token = TextEditingController();
   PCloudRegion _region = PCloudRegion.us;
 
   @override
   void dispose() {
-    _email.dispose();
-    _password.dispose();
+    _token.dispose();
     super.dispose();
   }
 
   void _submit() {
-    final email = _email.text.trim();
-    final password = _password.text;
-    if (email.isEmpty || password.isEmpty) return;
-    Navigator.of(context).pop(
-      PCloudLoginRequest(email: email, password: password, region: _region),
-    );
+    final token = _token.text.trim();
+    if (token.isEmpty) return;
+    Navigator.of(context).pop(_TokenRequest(token: token, region: _region));
   }
 
   @override
@@ -102,18 +65,23 @@ class _PCloudLoginDialogState extends State<_PCloudLoginDialog> {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(
-            controller: _email,
-            autofocus: true,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(labelText: 'pCloud email'),
+          const Text(
+            'pCloud accounts with two-factor authentication must connect with '
+            'an access token. Get one by running:\n\n'
+            '  rclone authorize "pcloud"\n\n'
+            'Sign in (with 2FA) in the browser it opens, then paste the '
+            '"access_token" value below.',
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           TextField(
-            controller: _password,
-            obscureText: true,
-            decoration: const InputDecoration(labelText: 'Password'),
-            onSubmitted: (_) => _submit(),
+            controller: _token,
+            autofocus: true,
+            minLines: 1,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Access token',
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<PCloudRegion>(
@@ -135,72 +103,6 @@ class _PCloudLoginDialogState extends State<_PCloudLoginDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(onPressed: _submit, child: const Text('Connect')),
-      ],
-    );
-  }
-}
-
-/// Prompts for the pCloud two-factor authentication code. Returns null if
-/// cancelled.
-Future<String?> showPCloudCodeDialog(BuildContext context) {
-  return showDialog<String>(
-    context: context,
-    builder: (_) => const _PCloudCodeDialog(),
-  );
-}
-
-class _PCloudCodeDialog extends StatefulWidget {
-  const _PCloudCodeDialog();
-
-  @override
-  State<_PCloudCodeDialog> createState() => _PCloudCodeDialogState();
-}
-
-class _PCloudCodeDialogState extends State<_PCloudCodeDialog> {
-  final _code = TextEditingController();
-
-  @override
-  void dispose() {
-    _code.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final code = _code.text.trim();
-    if (code.isEmpty) return;
-    Navigator.of(context).pop(code);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Verification code'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            'pCloud sent a verification code. Check your authenticator app, '
-            'SMS, pCloud app notification, or email, and enter it below.',
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _code,
-            autofocus: true,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Verification code',
-              hintText: '6-digit code',
-            ),
-            onSubmitted: (_) => _submit(),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(onPressed: _submit, child: const Text('Verify')),
       ],
     );
   }

@@ -1,38 +1,45 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
-import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_login_service.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_session_store.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_token_service.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/domain/pcloud_config.dart';
 
 void main() {
-  test('login stores the session and exposes connection state', () async {
+  test('connectWithToken stores the session when the token is valid', () async {
     final store = _FakeSessionStore();
     final controller = PCloudAuthController(
-      loginService: _StubLoginService(
-        const PCloudSession(authToken: 'tok', apiHost: 'api.pcloud.com'),
-      ),
+      tokenService: _StubTokenService(valid: true),
       store: store,
     );
 
-    await controller.login(
-      email: 'a@b.com',
-      password: 'pw',
-      region: PCloudRegion.us,
-    );
+    await controller.connectWithToken(token: 'tok', region: PCloudRegion.eu);
 
     expect(controller.isConnected, isTrue);
     expect(controller.authToken, 'tok');
-    expect(controller.apiHost, 'api.pcloud.com');
+    expect(controller.apiHost, 'eapi.pcloud.com');
     expect(store.session?.authToken, 'tok');
+  });
+
+  test('connectWithToken throws and stores nothing for an invalid token', () async {
+    final store = _FakeSessionStore();
+    final controller = PCloudAuthController(
+      tokenService: _StubTokenService(valid: false),
+      store: store,
+    );
+
+    await expectLater(
+      () => controller.connectWithToken(token: 'bad', region: PCloudRegion.us),
+      throwsA(isA<PCloudException>()),
+    );
+    expect(controller.isConnected, isFalse);
+    expect(store.session, isNull);
   });
 
   test('disconnect clears the session and store', () async {
     final store = _FakeSessionStore()
       ..session = const PCloudSession(authToken: 't', apiHost: 'h');
     final controller = PCloudAuthController(
-      loginService: _StubLoginService(
-        const PCloudSession(authToken: 't', apiHost: 'h'),
-      ),
+      tokenService: _StubTokenService(valid: true),
       store: store,
     );
 
@@ -44,9 +51,7 @@ void main() {
 
   test('loadStoredSession tolerates a failing store', () async {
     final controller = PCloudAuthController(
-      loginService: _StubLoginService(
-        const PCloudSession(authToken: 't', apiHost: 'h'),
-      ),
+      tokenService: _StubTokenService(valid: true),
       store: _ThrowingSessionStore(),
     );
 
@@ -56,26 +61,16 @@ void main() {
   });
 }
 
-class _StubLoginService implements PCloudLoginService {
-  _StubLoginService(this._session);
+class _StubTokenService implements PCloudTokenService {
+  _StubTokenService({required this.valid});
 
-  final PCloudSession _session;
-
-  @override
-  Future<PCloudSession> login({
-    required String email,
-    required String password,
-    required PCloudRegion region,
-  }) async => _session;
+  final bool valid;
 
   @override
-  Future<PCloudSession> verifyTfaCode({
-    required String email,
-    required String password,
+  Future<bool> validate({
+    required String token,
     required PCloudRegion region,
-    required String code,
-    String? token,
-  }) async => _session;
+  }) async => valid;
 }
 
 class _FakeSessionStore implements PCloudSessionStore {

@@ -79,7 +79,10 @@ class PCloudService {
       throw const PCloudException('Not connected to pCloud.');
     }
 
-    final uri = Uri.https(host, '/$endpoint', {...params, 'auth': token});
+    final uri = Uri.https(host, '/$endpoint', {
+      ...params,
+      'access_token': token,
+    });
     final response = await _client.get(uri);
     if (response.statusCode != 200) {
       throw PCloudException('pCloud request failed (${response.statusCode}).');

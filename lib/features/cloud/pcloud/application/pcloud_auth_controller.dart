@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../domain/pcloud_config.dart';
-import 'pcloud_login_service.dart';
 import 'pcloud_session_store.dart';
+import 'pcloud_token_service.dart';
 
 /// What the pCloud service needs to make authenticated requests.
 abstract interface class PCloudSessionProvider {
@@ -11,17 +11,18 @@ abstract interface class PCloudSessionProvider {
   String? get apiHost;
 }
 
-/// Manages the pCloud connection: logs in with username/password, persists the
-/// resulting auth token, and exposes connection state to the UI.
+/// Manages the pCloud connection. Because pCloud disabled new OAuth apps and its
+/// direct API login cannot complete 2FA, the app connects with a user-supplied
+/// access token (obtained out of band, e.g. via `rclone authorize "pcloud"`).
 class PCloudAuthController extends ChangeNotifier
     implements PCloudSessionProvider {
   PCloudAuthController({
-    PCloudLoginService? loginService,
+    PCloudTokenService? tokenService,
     PCloudSessionStore? store,
-  }) : _loginService = loginService ?? PCloudLoginService(),
+  }) : _tokenService = tokenService ?? PCloudTokenService(),
        _store = store ?? SecureStoragePCloudSessionStore();
 
-  final PCloudLoginService _loginService;
+  final PCloudTokenService _tokenService;
   final PCloudSessionStore _store;
 
   PCloudSession? _session;
@@ -45,44 +46,19 @@ class PCloudAuthController extends ChangeNotifier
     notifyListeners();
   }
 
-  /// Logs in and stores the session. Throws [PCloudTfaRequiredException] if the
-  /// account uses 2FA, or [PCloudException] for bad credentials / region.
-  /// Logs in. Throws [PCloudTfaRequiredException] (call [verifyTfaCode] next) if
-  /// the account uses 2FA, or [PCloudException] for bad credentials / region.
-  Future<void> login({
-    required String email,
-    required String password,
+  /// Validates and stores a pasted access token. Throws [PCloudException] if the
+  /// token is rejected (wrong token or wrong region).
+  Future<void> connectWithToken({
+    required String token,
     required PCloudRegion region,
   }) async {
-    await _persist(
-      await _loginService.login(
-        email: email,
-        password: password,
-        region: region,
-      ),
-    );
-  }
-
-  /// Completes a 2FA login with the authenticator [code].
-  Future<void> verifyTfaCode({
-    required String email,
-    required String password,
-    required PCloudRegion region,
-    required String code,
-    String? token,
-  }) async {
-    await _persist(
-      await _loginService.verifyTfaCode(
-        email: email,
-        password: password,
-        region: region,
-        code: code,
-        token: token,
-      ),
-    );
-  }
-
-  Future<void> _persist(PCloudSession session) async {
+    final valid = await _tokenService.validate(token: token, region: region);
+    if (!valid) {
+      throw const PCloudException(
+        'pCloud rejected that token. Check the token and the selected region.',
+      );
+    }
+    final session = PCloudSession(authToken: token, apiHost: region.apiHost);
     await _store.write(session);
     _session = session;
     notifyListeners();
