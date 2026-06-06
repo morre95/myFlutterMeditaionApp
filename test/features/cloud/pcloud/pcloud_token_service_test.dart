@@ -7,20 +7,23 @@ import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_token
 import 'package:my_meditation_app/features/cloud/pcloud/domain/pcloud_config.dart';
 
 void main() {
-  test('validate returns true and sends the token on the chosen region', () async {
-    final client = MockClient((request) async {
-      expect(request.url.host, 'eapi.pcloud.com');
-      expect(request.url.path, '/userinfo');
-      expect(request.url.queryParameters['access_token'], 'tok');
-      return http.Response(jsonEncode({'result': 0, 'userid': 1}), 200);
-    });
-    final service = PCloudTokenService(client: client);
+  test(
+    'validate returns true and sends the token on the chosen region',
+    () async {
+      final client = MockClient((request) async {
+        expect(request.url.host, 'eapi.pcloud.com');
+        expect(request.url.path, '/userinfo');
+        expect(request.url.queryParameters['access_token'], 'tok');
+        return http.Response(jsonEncode({'result': 0, 'userid': 1}), 200);
+      });
+      final service = PCloudTokenService(client: client);
 
-    expect(
-      await service.validate(token: 'tok', region: PCloudRegion.eu),
-      isTrue,
-    );
-  });
+      expect(
+        await service.validate(token: 'tok', region: PCloudRegion.eu),
+        isTrue,
+      );
+    },
+  );
 
   test('validate returns false for a rejected token', () async {
     final client = MockClient((request) async {

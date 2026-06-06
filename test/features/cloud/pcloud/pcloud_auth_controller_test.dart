@@ -20,20 +20,24 @@ void main() {
     expect(store.session?.authToken, 'tok');
   });
 
-  test('connectWithToken throws and stores nothing for an invalid token', () async {
-    final store = _FakeSessionStore();
-    final controller = PCloudAuthController(
-      tokenService: _StubTokenService(valid: false),
-      store: store,
-    );
+  test(
+    'connectWithToken throws and stores nothing for an invalid token',
+    () async {
+      final store = _FakeSessionStore();
+      final controller = PCloudAuthController(
+        tokenService: _StubTokenService(valid: false),
+        store: store,
+      );
 
-    await expectLater(
-      () => controller.connectWithToken(token: 'bad', region: PCloudRegion.us),
-      throwsA(isA<PCloudException>()),
-    );
-    expect(controller.isConnected, isFalse);
-    expect(store.session, isNull);
-  });
+      await expectLater(
+        () =>
+            controller.connectWithToken(token: 'bad', region: PCloudRegion.us),
+        throwsA(isA<PCloudException>()),
+      );
+      expect(controller.isConnected, isFalse);
+      expect(store.session, isNull);
+    },
+  );
 
   test('disconnect clears the session and store', () async {
     final store = _FakeSessionStore()

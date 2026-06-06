@@ -9,8 +9,7 @@ import '../domain/pcloud_config.dart';
 /// the only way to reach a 2FA-protected account (the token is obtained out of
 /// band, e.g. via `rclone authorize "pcloud"`).
 class PCloudTokenService {
-  PCloudTokenService({http.Client? client})
-    : _client = client ?? http.Client();
+  PCloudTokenService({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
 

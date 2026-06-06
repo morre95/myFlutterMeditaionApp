@@ -620,7 +620,9 @@ class _TrackListPanel extends StatelessWidget {
   final ValueChanged<PlaylistTrack>? onToggleFavorite;
 
   static String _trackSubtitle(AudioSource source) {
-    final kind = source.kind == AudioSourceKind.pCloud ? 'pCloud' : 'Local file';
+    final kind = source.kind == AudioSourceKind.pCloud
+        ? 'pCloud'
+        : 'Local file';
     final duration = source.duration;
     if (duration == null) return kind;
     return '$kind · ${_formatDuration(duration)}';

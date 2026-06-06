@@ -3,6 +3,34 @@
 A Flutter meditation app: meditation timer with custom bells, music playlists,
 session history & streaks, favorites, and optional pCloud audio streaming.
 
+## Running the app
+
+Requires the Flutter SDK (stable channel) — verify with `flutter doctor`.
+
+```bash
+flutter pub get          # fetch dependencies
+flutter run              # build & run on the selected device/emulator
+flutter devices          # list available devices/emulators
+```
+
+To stream audio from pCloud, see [Connecting to pCloud](#connecting-to-pcloud).
+
+## Tests & linting
+
+```bash
+flutter test             # run all tests
+flutter test test/features/timer/                    # run a folder
+flutter test test/features/timer/application/timer_controller_test.dart  # one file
+flutter test --coverage  # write coverage to coverage/lcov.info
+
+flutter analyze          # static analysis + lints (uses analysis_options.yaml)
+dart format .            # format code
+dart format --output=none --set-exit-if-changed .    # check formatting (CI-style)
+```
+
+Linting is configured via `analysis_options.yaml` (the `flutter_lints` rule set);
+`flutter analyze` is the linter — there is no separate lint command.
+
 ## Connecting to pCloud
 
 pCloud is optional — the app works fully without it. Because pCloud's direct
