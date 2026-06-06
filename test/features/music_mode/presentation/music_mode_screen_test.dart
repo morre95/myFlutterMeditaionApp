@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/features/library/application/local_wav_picker_service.dart';
+import 'package:my_meditation_app/features/music_mode/application/audio_duration_probe.dart';
 import 'package:my_meditation_app/features/music_mode/presentation/music_mode_screen.dart';
 import 'package:my_meditation_app/features/player/application/local_audio_playback_controller.dart';
 import 'package:my_meditation_app/features/player/application/playback_source_resolver.dart';
@@ -26,6 +27,7 @@ void main() {
           playlistController: controller,
           picker: const _FakeLocalAudioFilePicker([]),
           playbackController: playbackController,
+          durationProbe: const _FakeDurationProbe(Duration(minutes: 3)),
         ),
       ),
     );
@@ -67,6 +69,7 @@ void main() {
             ),
           ]),
           playbackController: playbackController,
+          durationProbe: const _FakeDurationProbe(Duration(minutes: 3)),
         ),
       ),
     );
@@ -88,6 +91,8 @@ void main() {
     expect(find.text('rain.wav'), findsOneWidget);
     expect(find.text('forest.wav'), findsOneWidget);
     expect(find.text('Added 2 audio files to the playlist.'), findsOneWidget);
+    // Each track shows its probed duration (3:00).
+    expect(find.textContaining('3:00'), findsNWidgets(2));
 
     playbackController.dispose();
     controller.dispose();
@@ -122,6 +127,7 @@ void main() {
           playlistController: controller,
           picker: const _FakeLocalAudioFilePicker([]),
           playbackController: playbackController,
+          durationProbe: const _FakeDurationProbe(Duration(minutes: 3)),
         ),
       ),
     );
@@ -197,6 +203,7 @@ void main() {
           playlistController: controller,
           picker: const _FakeLocalAudioFilePicker([]),
           playbackController: playbackController,
+          durationProbe: const _FakeDurationProbe(Duration(minutes: 3)),
         ),
       ),
     );
@@ -247,6 +254,15 @@ class _FakeLocalAudioFilePicker implements LocalAudioFilePicker {
 
   @override
   Future<List<AudioSource>> pickAudioFiles() async => sources;
+}
+
+class _FakeDurationProbe implements AudioDurationProbe {
+  const _FakeDurationProbe(this.duration);
+
+  final Duration duration;
+
+  @override
+  Future<Duration?> durationOf(AudioSource source) async => duration;
 }
 
 class _FakeLocalAudioPlayer implements LocalAudioPlayer {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
+import '../../../shared/domain/audio_source.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../favorites/application/favorites_controller.dart';
 import '../../library/application/local_wav_picker_service.dart'
@@ -9,6 +10,7 @@ import '../../player/application/local_audio_playback_controller.dart';
 import '../../playlists/application/playlist_controller.dart';
 import '../../playlists/application/playlist_playback_controller.dart';
 import '../../playlists/domain/playlist.dart';
+import '../application/audio_duration_probe.dart';
 import 'now_playing_screen.dart';
 import 'widgets/playback_timeline.dart';
 
@@ -19,15 +21,18 @@ class MusicModeScreen extends StatefulWidget {
     LocalAudioFilePicker? picker,
     LocalAudioPlaybackController? playbackController,
     FavoritesController? favoritesController,
+    AudioDurationProbe? durationProbe,
   }) : _playlistController = playlistController,
        _picker = picker,
        _playbackController = playbackController,
-       _favoritesController = favoritesController;
+       _favoritesController = favoritesController,
+       _durationProbe = durationProbe;
 
   final PlaylistController? _playlistController;
   final LocalAudioFilePicker? _picker;
   final LocalAudioPlaybackController? _playbackController;
   final FavoritesController? _favoritesController;
+  final AudioDurationProbe? _durationProbe;
 
   @override
   State<MusicModeScreen> createState() => _MusicModeScreenState();
@@ -39,6 +44,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   late final LocalAudioPlaybackController _playbackController;
   late final PlaylistPlaybackController _playlistPlaybackController;
   FavoritesController? _favorites;
+  late final AudioDurationProbe _durationProbe;
 
   late final bool _ownsPlaybackController;
   bool _dependenciesResolved = false;
@@ -51,6 +57,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     super.initState();
     _ownsPlaybackController = widget._playbackController == null;
     _picker = widget._picker ?? FilePickerLocalAudioPicker();
+    _durationProbe = widget._durationProbe ?? const AudioPlayersDurationProbe();
   }
 
   @override
@@ -141,7 +148,19 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
       final sources = await _picker.pickAudioFiles();
       if (!mounted) return;
 
-      final added = await _playlistController.addTracks(playlistId, sources);
+      final withDurations = <AudioSource>[];
+      for (final source in sources) {
+        final duration = await _durationProbe.durationOf(source);
+        withDurations.add(
+          duration == null ? source : source.copyWith(duration: duration),
+        );
+      }
+      if (!mounted) return;
+
+      final added = await _playlistController.addTracks(
+        playlistId,
+        withDurations,
+      );
       setState(() {
         _message = added.isEmpty
             ? 'No audio files were selected.'
@@ -186,16 +205,9 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
 
   Future<void> _seek(Duration position) => _playbackController.seek(position);
 
-  Future<void> _playFromTrack(Playlist playlist, int index) async {
-    final activeId = _playlistPlaybackController.state.activePlaylist?.id;
-    if (activeId == playlist.id) {
-      await _playlistPlaybackController.skipToTrack(index);
-    } else {
-      await _playlistPlaybackController.playPlaylist(
-        playlist,
-        startIndex: index,
-      );
-    }
+  /// Plays only the tapped track (no auto-advance to the rest of the playlist).
+  Future<void> _playTrack(Playlist playlist, int index) async {
+    await _playlistPlaybackController.playSingleTrack(playlist, index);
   }
 
   Future<void> _removeTrack(Playlist playlist, PlaylistTrack track) async {
@@ -308,7 +320,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                       isPicking: _isPicking,
                       message: _message,
                       onPickFiles: _pickAndAddFiles,
-                      onSkipToTrack: (index) => _playFromTrack(selected, index),
+                      onPlayTrack: (index) => _playTrack(selected, index),
                       onRemoveTrack: (track) => _removeTrack(selected, track),
                       onReorder: (o, n) => _reorderTrack(selected, o, n),
                       onToggleFavorite: _favorites == null
@@ -590,7 +602,7 @@ class _TrackListPanel extends StatelessWidget {
     required this.isPicking,
     required this.message,
     required this.onPickFiles,
-    required this.onSkipToTrack,
+    required this.onPlayTrack,
     required this.onRemoveTrack,
     required this.onReorder,
     required this.onToggleFavorite,
@@ -602,10 +614,23 @@ class _TrackListPanel extends StatelessWidget {
   final bool isPicking;
   final String? message;
   final VoidCallback onPickFiles;
-  final ValueChanged<int> onSkipToTrack;
+  final ValueChanged<int> onPlayTrack;
   final ValueChanged<PlaylistTrack> onRemoveTrack;
   final void Function(int oldIndex, int newIndex) onReorder;
   final ValueChanged<PlaylistTrack>? onToggleFavorite;
+
+  static String _trackSubtitle(AudioSource source) {
+    final kind = source.kind == AudioSourceKind.pCloud ? 'pCloud' : 'Local file';
+    final duration = source.duration;
+    if (duration == null) return kind;
+    return '$kind · ${_formatDuration(duration)}';
+  }
+
+  static String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -659,7 +684,7 @@ class _TrackListPanel extends StatelessWidget {
                       isCurrentTrack ? Icons.volume_up : Icons.audio_file,
                     ),
                     title: Text(track.source.displayName),
-                    subtitle: const Text('Local file'),
+                    subtitle: Text(_trackSubtitle(track.source)),
                     trailing: Wrap(
                       spacing: 0,
                       children: [
@@ -679,8 +704,8 @@ class _TrackListPanel extends StatelessWidget {
                             ),
                           ),
                         IconButton(
-                          tooltip: 'Play from here',
-                          onPressed: () => onSkipToTrack(index),
+                          tooltip: 'Play ${track.source.displayName}',
+                          onPressed: () => onPlayTrack(index),
                           icon: const Icon(Icons.play_arrow),
                         ),
                         IconButton(

@@ -112,6 +112,26 @@ void main() {
     playback.dispose();
   });
 
+  test('playSingleTrack plays only that track and does not advance', () async {
+    final player = _FakeLocalAudioPlayer();
+    final playback = LocalAudioPlaybackController(player: player);
+    final controller = PlaylistPlaybackController(player: playback);
+
+    await controller.playSingleTrack(_playlist(['rain', 'forest']), 0);
+    expect(player.loadedPath, '/music/rain.wav');
+
+    player.complete();
+    await Future<void>.delayed(Duration.zero);
+
+    // Stays on the first track and completes instead of advancing to forest.
+    expect(player.loadedPath, '/music/rain.wav');
+    expect(controller.state.currentTrackIndex, 0);
+    expect(controller.state.status, PlaylistPlaybackStatus.completed);
+
+    controller.dispose();
+    playback.dispose();
+  });
+
   test('marks completed when last track finishes', () async {
     final player = _FakeLocalAudioPlayer();
     final playback = LocalAudioPlaybackController(player: player);

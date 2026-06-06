@@ -93,6 +93,9 @@ class PlaylistPlaybackController extends ChangeNotifier {
   /// Track indices in the order they should play. `null` means natural order.
   List<int>? _shuffledOrder;
 
+  /// When true, playback stops after the current track instead of advancing.
+  bool _singleTrackMode = false;
+
   PlaylistPlaybackState get state => _state;
 
   LocalAudioPlaybackState get trackState => _player.state;
@@ -101,6 +104,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
     if (playlist.tracks.isEmpty) return;
 
     await _player.stop();
+    _singleTrackMode = false;
     if (_state.shuffleEnabled) {
       _shuffledOrder = _buildShuffledOrder(playlist.tracks.length, startIndex);
     } else {
@@ -111,6 +115,24 @@ class PlaylistPlaybackController extends ChangeNotifier {
         status: PlaylistPlaybackStatus.playing,
         activePlaylist: playlist,
         currentTrackIndex: startIndex,
+        clearError: true,
+      ),
+    );
+    await _playCurrentTrack();
+  }
+
+  /// Plays a single track and stops when it finishes (no auto-advance).
+  Future<void> playSingleTrack(Playlist playlist, int index) async {
+    if (index < 0 || index >= playlist.tracks.length) return;
+
+    await _player.stop();
+    _shuffledOrder = null;
+    _singleTrackMode = true;
+    _setState(
+      _state.copyWith(
+        status: PlaylistPlaybackStatus.playing,
+        activePlaylist: playlist,
+        currentTrackIndex: index,
         clearError: true,
       ),
     );
@@ -134,6 +156,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
     final repeat = _state.repeatMode;
     final shuffle = _state.shuffleEnabled;
     _shuffledOrder = null;
+    _singleTrackMode = false;
     _setState(
       PlaylistPlaybackState(
         status: PlaylistPlaybackStatus.idle,
@@ -149,6 +172,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
     if (index < 0 || index >= playlist.tracks.length) return;
 
     await _player.stop();
+    _singleTrackMode = false;
     _setState(
       _state.copyWith(
         status: PlaylistPlaybackStatus.playing,
@@ -234,6 +258,12 @@ class PlaylistPlaybackController extends ChangeNotifier {
     final playlist = _state.activePlaylist;
     final index = _state.currentTrackIndex;
     if (playlist == null || index == null) return;
+
+    // A single-track play stops once the track finishes.
+    if (_singleTrackMode) {
+      _setState(_state.copyWith(status: PlaylistPlaybackStatus.completed));
+      return;
+    }
 
     if (_state.repeatMode == PlaylistRepeatMode.repeatOne) {
       _setState(_state.copyWith(status: PlaylistPlaybackStatus.playing));
