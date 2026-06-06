@@ -9,8 +9,8 @@ Requires the Flutter SDK (stable channel) — verify with `flutter doctor`.
 
 ```bash
 flutter pub get          # fetch dependencies
-flutter run              # build & run on the selected device/emulator
 flutter devices          # list available devices/emulators
+flutter run              # build & run on the selected device/emulator
 ```
 
 To stream audio from pCloud, see [Connecting to pCloud](#connecting-to-pcloud).

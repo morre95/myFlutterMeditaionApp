@@ -2,6 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_service.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_session_store.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/domain/pcloud_config.dart';
 import 'package:my_meditation_app/features/library/application/local_wav_picker_service.dart';
 import 'package:my_meditation_app/features/music_mode/application/audio_duration_probe.dart';
 import 'package:my_meditation_app/features/music_mode/presentation/music_mode_screen.dart';
@@ -225,6 +231,49 @@ void main() {
     playbackController.dispose();
     controller.dispose();
   });
+
+  testWidgets('Add files offers a pCloud source when connected', (tester) async {
+    final controller = PlaylistController(repository: _FakePlaylistRepository([]));
+    await controller.load();
+    await controller.create('Morning');
+    final player = _FakeLocalAudioPlayer();
+    final playbackController = LocalAudioPlaybackController(player: player);
+
+    final auth = PCloudAuthController(
+      store: _StubSessionStore(
+        const PCloudSession(authToken: 't', apiHost: 'eapi.pcloud.com'),
+      ),
+    );
+    await auth.loadStoredSession();
+    final service = PCloudService(
+      session: auth,
+      client: MockClient((_) async => http.Response('{"result":0}', 200)),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicModeScreen(
+          playlistController: controller,
+          picker: const _FakeLocalAudioFilePicker([]),
+          playbackController: playbackController,
+          durationProbe: const _FakeDurationProbe(Duration(minutes: 3)),
+          pcloudAuthController: auth,
+          pcloudService: service,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Add files'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('From this device'), findsOneWidget);
+    expect(find.text('From pCloud'), findsOneWidget);
+
+    playbackController.dispose();
+    controller.dispose();
+    auth.dispose();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +312,21 @@ class _FakeDurationProbe implements AudioDurationProbe {
 
   @override
   Future<Duration?> durationOf(AudioSource source) async => duration;
+}
+
+class _StubSessionStore implements PCloudSessionStore {
+  _StubSessionStore(this._session);
+
+  PCloudSession? _session;
+
+  @override
+  Future<PCloudSession?> read() async => _session;
+
+  @override
+  Future<void> write(PCloudSession session) async => _session = session;
+
+  @override
+  Future<void> clear() async => _session = null;
 }
 
 class _FakeLocalAudioPlayer implements LocalAudioPlayer {

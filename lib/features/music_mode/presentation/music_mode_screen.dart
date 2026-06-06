@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import '../../../app/app_scope.dart';
 import '../../../shared/domain/audio_source.dart';
 import '../../../shared/presentation/gradient_background.dart';
+import '../../cloud/pcloud/application/pcloud_auth_controller.dart';
+import '../../cloud/pcloud/application/pcloud_service.dart';
+import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../favorites/application/favorites_controller.dart';
 import '../../library/application/local_wav_picker_service.dart'
     show FilePickerLocalAudioPicker, LocalAudioFilePicker;
+import '../../library/presentation/pcloud_browser_screen.dart';
 import '../../player/application/local_audio_playback_controller.dart';
 import '../../playlists/application/playlist_controller.dart';
 import '../../playlists/application/playlist_playback_controller.dart';
@@ -22,17 +26,23 @@ class MusicModeScreen extends StatefulWidget {
     LocalAudioPlaybackController? playbackController,
     FavoritesController? favoritesController,
     AudioDurationProbe? durationProbe,
+    PCloudAuthController? pcloudAuthController,
+    PCloudService? pcloudService,
   }) : _playlistController = playlistController,
        _picker = picker,
        _playbackController = playbackController,
        _favoritesController = favoritesController,
-       _durationProbe = durationProbe;
+       _durationProbe = durationProbe,
+       _pcloudAuthController = pcloudAuthController,
+       _pcloudService = pcloudService;
 
   final PlaylistController? _playlistController;
   final LocalAudioFilePicker? _picker;
   final LocalAudioPlaybackController? _playbackController;
   final FavoritesController? _favoritesController;
   final AudioDurationProbe? _durationProbe;
+  final PCloudAuthController? _pcloudAuthController;
+  final PCloudService? _pcloudService;
 
   @override
   State<MusicModeScreen> createState() => _MusicModeScreenState();
@@ -45,6 +55,8 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   late final PlaylistPlaybackController _playlistPlaybackController;
   FavoritesController? _favorites;
   late final AudioDurationProbe _durationProbe;
+  PCloudAuthController? _pcloudAuth;
+  PCloudService? _pcloudService;
 
   late final bool _ownsPlaybackController;
   bool _dependenciesResolved = false;
@@ -78,6 +90,8 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
         widget._playbackController ??
         LocalAudioPlaybackController(resolver: scope!.playbackSourceResolver);
     _favorites = widget._favoritesController ?? scope?.favoritesController;
+    _pcloudAuth = widget._pcloudAuthController ?? scope?.pcloudAuthController;
+    _pcloudService = widget._pcloudService ?? scope?.pcloudService;
     _playlistPlaybackController = PlaylistPlaybackController(
       player: _playbackController,
     );
@@ -133,6 +147,81 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
       await _playlistPlaybackController.stop();
     }
     await _playlistController.delete(playlist.id);
+  }
+
+  /// Entry point for the "Add files" button. Offers local + pCloud sources when
+  /// pCloud is available; otherwise picks local files directly.
+  Future<void> _onAddFiles() async {
+    final playlistId = _playlistController.selectedId;
+    if (playlistId == null) return;
+
+    final auth = _pcloudAuth;
+    if (auth == null) {
+      await _pickAndAddFiles();
+      return;
+    }
+
+    final choice = await showModalBottomSheet<_AddSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.smartphone),
+              title: const Text('From this device'),
+              onTap: () => Navigator.of(ctx).pop(_AddSource.device),
+            ),
+            if (auth.isConnected)
+              ListTile(
+                leading: const Icon(Icons.cloud),
+                title: const Text('From pCloud'),
+                onTap: () => Navigator.of(ctx).pop(_AddSource.pcloud),
+              )
+            else
+              ListTile(
+                leading: const Icon(Icons.cloud_queue),
+                title: const Text('Connect pCloud…'),
+                onTap: () => Navigator.of(ctx).pop(_AddSource.connectPcloud),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+
+    switch (choice) {
+      case _AddSource.device:
+        await _pickAndAddFiles();
+      case _AddSource.pcloud:
+        await _addFromPCloud(playlistId);
+      case _AddSource.connectPcloud:
+        final error = await connectToPCloud(context, auth);
+        if (!mounted) return;
+        if (error != null) {
+          setState(() => _message = error);
+        } else if (auth.isConnected) {
+          await _addFromPCloud(playlistId);
+        }
+    }
+  }
+
+  Future<void> _addFromPCloud(String playlistId) async {
+    final service = _pcloudService;
+    if (service == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PCloudBrowserScreen(
+          service: service,
+          onAddFile: (AudioSource source) async {
+            final added = await _playlistController.addTracks(playlistId, [
+              source,
+            ]);
+            return added.isNotEmpty;
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _pickAndAddFiles() async {
@@ -319,7 +408,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                       favorites: _favorites,
                       isPicking: _isPicking,
                       message: _message,
-                      onPickFiles: _pickAndAddFiles,
+                      onAddFiles: _onAddFiles,
                       onPlayTrack: (index) => _playTrack(selected, index),
                       onRemoveTrack: (track) => _removeTrack(selected, track),
                       onReorder: (o, n) => _reorderTrack(selected, o, n),
@@ -484,6 +573,8 @@ class _PlaylistListPanel extends StatelessWidget {
 
 enum _PlaylistAction { rename, delete }
 
+enum _AddSource { device, pcloud, connectPcloud }
+
 // ---------------------------------------------------------------------------
 // Playback panel
 // ---------------------------------------------------------------------------
@@ -601,7 +692,7 @@ class _TrackListPanel extends StatelessWidget {
     required this.favorites,
     required this.isPicking,
     required this.message,
-    required this.onPickFiles,
+    required this.onAddFiles,
     required this.onPlayTrack,
     required this.onRemoveTrack,
     required this.onReorder,
@@ -613,7 +704,7 @@ class _TrackListPanel extends StatelessWidget {
   final FavoritesController? favorites;
   final bool isPicking;
   final String? message;
-  final VoidCallback onPickFiles;
+  final VoidCallback onAddFiles;
   final ValueChanged<int> onPlayTrack;
   final ValueChanged<PlaylistTrack> onRemoveTrack;
   final void Function(int oldIndex, int newIndex) onReorder;
@@ -653,14 +744,14 @@ class _TrackListPanel extends StatelessWidget {
                   ),
                 ),
                 FilledButton.icon(
-                  onPressed: isPicking ? null : onPickFiles,
+                  onPressed: isPicking ? null : onAddFiles,
                   icon: isPicking
                       ? const SizedBox.square(
                           dimension: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.library_music, size: 18),
-                  label: Text(isPicking ? 'Selecting…' : 'Add files'),
+                      : const Icon(Icons.add, size: 18),
+                  label: Text(isPicking ? 'Adding…' : 'Add files'),
                 ),
               ],
             ),
@@ -683,7 +774,11 @@ class _TrackListPanel extends StatelessWidget {
                     key: ValueKey(track.id),
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(
-                      isCurrentTrack ? Icons.volume_up : Icons.audio_file,
+                      isCurrentTrack
+                          ? Icons.volume_up
+                          : track.source.kind == AudioSourceKind.pCloud
+                          ? Icons.cloud
+                          : Icons.audio_file,
                     ),
                     title: Text(track.source.displayName),
                     subtitle: Text(_trackSubtitle(track.source)),
