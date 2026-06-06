@@ -5,12 +5,26 @@ class BellSelection {
 
   const BellSelection.custom(this.source) : name = null;
 
+  factory BellSelection.fromJson(Map<String, dynamic> json) {
+    final source = json['source'];
+    if (source != null) {
+      return BellSelection.custom(
+        AudioSource.fromJson(source as Map<String, dynamic>),
+      );
+    }
+    return BellSelection.builtIn(json['name'] as String);
+  }
+
   final String? name;
   final AudioSource? source;
 
   bool get isCustom => source != null;
 
   String get displayName => source?.displayName ?? name ?? 'Bell';
+
+  Map<String, dynamic> toJson() => {
+    if (source != null) 'source': source!.toJson() else 'name': name,
+  };
 }
 
 class BuiltInBell {

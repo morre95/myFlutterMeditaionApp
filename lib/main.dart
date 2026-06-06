@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
 
+import 'app/app_dependencies.dart';
+import 'app/app_scope.dart';
 import 'features/home/presentation/home_screen.dart';
 
-void main() {
-  runApp(const MeditationApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final dependencies = AppDependencies();
+  await dependencies.init();
+  runApp(MeditationApp(dependencies: dependencies));
 }
 
 class MeditationApp extends StatelessWidget {
-  const MeditationApp({super.key});
+  const MeditationApp({super.key, required this.dependencies});
+
+  final AppDependencies dependencies;
 
   @override
   Widget build(BuildContext context) {
@@ -16,10 +23,12 @@ class MeditationApp extends StatelessWidget {
       brightness: Brightness.dark,
     );
 
-    return MaterialApp(
-      title: 'My Meditation',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
+    return AppScope(
+      dependencies: dependencies,
+      child: MaterialApp(
+        title: 'My Meditation',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
         useMaterial3: true,
         colorScheme: colorScheme,
         scaffoldBackgroundColor: Colors.transparent,
@@ -54,7 +63,8 @@ class MeditationApp extends StatelessWidget {
           displayColor: Colors.white,
         ),
       ),
-      home: const HomeScreen(),
+        home: const HomeScreen(),
+      ),
     );
   }
 }
