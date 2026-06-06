@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/app_scope.dart';
+import '../../../shared/domain/audio_source.dart';
 import '../../../shared/presentation/gradient_background.dart';
+import '../../settings/application/app_settings_controller.dart';
 import '../application/timer_controller.dart';
 import '../domain/bell_selection.dart';
 
 class TimerModeScreen extends StatefulWidget {
-  const TimerModeScreen({super.key});
+  const TimerModeScreen({super.key, TimerController? controller})
+    : _controller = controller;
+
+  final TimerController? _controller;
 
   @override
   State<TimerModeScreen> createState() => _TimerModeScreenState();
@@ -13,17 +19,61 @@ class TimerModeScreen extends StatefulWidget {
 
 class _TimerModeScreenState extends State<TimerModeScreen> {
   late final TimerController _controller;
+  AppSettingsController? _appSettings;
+  late final bool _ownsController;
+  bool _dependenciesResolved = false;
 
   @override
-  void initState() {
-    super.initState();
-    _controller = TimerController();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_dependenciesResolved) return;
+    _dependenciesResolved = true;
+    final injected = widget._controller;
+    _ownsController = injected == null;
+    if (injected != null) {
+      _controller = injected;
+    } else {
+      final deps = AppScope.of(context);
+      _appSettings = deps.appSettingsController;
+      _controller = TimerController(
+        repository: deps.timerSettingsRepository,
+        sourceResolver: deps.playbackSourceResolver,
+        history: deps.historyController,
+      );
+      _controller.load();
+    }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    if (_ownsController) {
+      _controller.dispose();
+    }
     super.dispose();
+  }
+
+  /// Maps the current [BellSelection] to a dropdown key, falling back to the
+  /// first built-in bell if a previously-selected custom bell was removed.
+  String _currentBellKey(BellSelection bell, List<AudioSource> customBells) {
+    if (bell.isCustom) {
+      final id = bell.source!.id;
+      if (customBells.any((b) => b.id == id)) return 'custom:$id';
+      return 'builtin:${builtInBells.first.id}';
+    }
+    final name = bell.name;
+    if (builtInBells.any((b) => b.id == name)) return 'builtin:$name';
+    return 'builtin:${builtInBells.first.id}';
+  }
+
+  BellSelection? _bellFromKey(String key, List<AudioSource> customBells) {
+    if (key.startsWith('custom:')) {
+      final id = key.substring('custom:'.length);
+      for (final bell in customBells) {
+        if (bell.id == id) return BellSelection.custom(bell);
+      }
+      return null;
+    }
+    return BellSelection.builtIn(key.substring('builtin:'.length));
   }
 
   @override
@@ -34,9 +84,10 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
       body: GradientBackground(
         child: SafeArea(
           child: AnimatedBuilder(
-            animation: _controller,
+            animation: Listenable.merge([_controller, _appSettings]),
             builder: (context, _) {
               final state = _controller.state;
+              final customBells = _appSettings?.customBells ?? const [];
               return ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
@@ -77,24 +128,32 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
                           const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
                             key: const Key('timer-bell-dropdown'),
-                            initialValue:
-                                state.settings.bell.name ??
-                                builtInBells.first.id,
+                            initialValue: _currentBellKey(
+                              state.settings.bell,
+                              customBells,
+                            ),
                             decoration: const InputDecoration(
                               labelText: 'Ending bell',
                               border: OutlineInputBorder(),
                             ),
-                            items: builtInBells
-                                .map(
-                                  (bell) => DropdownMenuItem<String>(
-                                    value: bell.id,
-                                    child: Text(bell.label),
-                                  ),
-                                )
-                                .toList(),
+                            items: [
+                              for (final bell in builtInBells)
+                                DropdownMenuItem<String>(
+                                  value: 'builtin:${bell.id}',
+                                  child: Text(bell.label),
+                                ),
+                              for (final bell in customBells)
+                                DropdownMenuItem<String>(
+                                  value: 'custom:${bell.id}',
+                                  child: Text(bell.displayName),
+                                ),
+                            ],
                             onChanged: (value) {
                               if (value == null) return;
-                              _controller.setBell(BellSelection.builtIn(value));
+                              final selection = _bellFromKey(value, customBells);
+                              if (selection != null) {
+                                _controller.setBell(selection);
+                              }
                             },
                           ),
                         ],

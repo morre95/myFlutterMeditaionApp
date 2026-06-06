@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_meditation_app/features/timer/application/timer_controller.dart';
 import 'package:my_meditation_app/features/timer/presentation/timer_mode_screen.dart';
 
 void main() {
   Future<void> pumpScreen(WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: TimerModeScreen()));
+    // Inject a controller (no repository) so the screen does not require an
+    // AppScope ancestor.
+    await tester.pumpWidget(
+      MaterialApp(home: TimerModeScreen(controller: TimerController())),
+    );
   }
 
   testWidgets('renders timer controls and progress UI', (tester) async {
