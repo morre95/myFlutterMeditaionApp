@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/app_scope.dart';
 import '../../../shared/presentation/gradient_background.dart';
+import '../../favorites/application/favorites_controller.dart';
 import '../../library/application/local_wav_picker_service.dart'
     show FilePickerLocalAudioPicker, LocalAudioFilePicker;
 import '../../player/application/local_audio_playback_controller.dart';
 import '../../playlists/application/playlist_controller.dart';
 import '../../playlists/application/playlist_playback_controller.dart';
 import '../../playlists/domain/playlist.dart';
-import '../../playlists/domain/playlist_repository.dart';
-import '../../playlists/infrastructure/shared_preferences_playlist_repository.dart';
 import 'now_playing_screen.dart';
 import 'widgets/playback_timeline.dart';
 
@@ -18,13 +18,16 @@ class MusicModeScreen extends StatefulWidget {
     PlaylistController? playlistController,
     LocalAudioFilePicker? picker,
     LocalAudioPlaybackController? playbackController,
+    FavoritesController? favoritesController,
   }) : _playlistController = playlistController,
        _picker = picker,
-       _playbackController = playbackController;
+       _playbackController = playbackController,
+       _favoritesController = favoritesController;
 
   final PlaylistController? _playlistController;
   final LocalAudioFilePicker? _picker;
   final LocalAudioPlaybackController? _playbackController;
+  final FavoritesController? _favoritesController;
 
   @override
   State<MusicModeScreen> createState() => _MusicModeScreenState();
@@ -35,10 +38,10 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   late final LocalAudioFilePicker _picker;
   late final LocalAudioPlaybackController _playbackController;
   late final PlaylistPlaybackController _playlistPlaybackController;
-  late final PlaylistRepository _repository;
+  FavoritesController? _favorites;
 
-  late final bool _ownsPlaylistController;
   late final bool _ownsPlaybackController;
+  bool _dependenciesResolved = false;
 
   bool _isPicking = false;
   String? _message;
@@ -46,23 +49,29 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   @override
   void initState() {
     super.initState();
-    _ownsPlaylistController = widget._playlistController == null;
     _ownsPlaybackController = widget._playbackController == null;
-
-    _repository = SharedPreferencesPlaylistRepository();
-    _playlistController =
-        widget._playlistController ??
-        PlaylistController(repository: _repository);
     _picker = widget._picker ?? FilePickerLocalAudioPicker();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_dependenciesResolved) return;
+    _dependenciesResolved = true;
+    // Resolve shared singletons from AppScope unless overridden (tests inject
+    // the core controllers to run without an AppScope ancestor).
+    final injectedForTest =
+        widget._playlistController != null && widget._playbackController != null;
+    final scope = injectedForTest ? null : AppScope.of(context);
+
+    _playlistController = widget._playlistController ?? scope!.playlistController;
     _playbackController =
-        widget._playbackController ?? LocalAudioPlaybackController();
+        widget._playbackController ??
+        LocalAudioPlaybackController(resolver: scope!.playbackSourceResolver);
+    _favorites = widget._favoritesController ?? scope?.favoritesController;
     _playlistPlaybackController = PlaylistPlaybackController(
       player: _playbackController,
     );
-
-    if (_ownsPlaylistController) {
-      _playlistController.load();
-    }
   }
 
   @override
@@ -70,9 +79,6 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     _playlistPlaybackController.dispose();
     if (_ownsPlaybackController) {
       _playbackController.dispose();
-    }
-    if (_ownsPlaylistController) {
-      _playlistController.dispose();
     }
     super.dispose();
   }
@@ -210,6 +216,19 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     );
   }
 
+  /// Favorite playlists first, each group keeping its original order.
+  List<Playlist> _sortedPlaylists(List<Playlist> playlists) {
+    final favorites = _favorites;
+    if (favorites == null) return playlists;
+    final favored = <Playlist>[];
+    final rest = <Playlist>[];
+    for (final playlist in playlists) {
+      (favorites.isPlaylistFavorite(playlist.id) ? favored : rest)
+          .add(playlist);
+    }
+    return [...favored, ...rest];
+  }
+
   static Future<String?> _showNameDialog(
     BuildContext context, {
     required String title,
@@ -233,13 +252,16 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
               _playlistController,
               _playbackController,
               _playlistPlaybackController,
+              _favorites,
             ]),
             builder: (context, _) {
               if (_playlistController.isLoading) {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final playlists = _playlistController.playlists;
+              final playlists = _sortedPlaylists(
+                _playlistController.playlists,
+              );
               final selectedId = _playlistController.selectedId;
               final selected = _playlistController.selectedPlaylist;
               final playbackState = _playlistPlaybackController.state;
@@ -251,11 +273,16 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                     playlists: playlists,
                     selectedId: selectedId,
                     playbackState: playbackState,
+                    favorites: _favorites,
                     onCreate: _createPlaylist,
                     onSelect: _playlistController.select,
                     onPlay: _playPlaylist,
                     onRename: _renamePlaylist,
                     onDelete: _deletePlaylist,
+                    onToggleFavorite: _favorites == null
+                        ? null
+                        : (playlist) =>
+                              _favorites!.togglePlaylist(playlist.id),
                   ),
                   const SizedBox(height: 12),
                   _PlaybackPanel(
@@ -277,12 +304,16 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                     _TrackListPanel(
                       playlist: selected,
                       playbackState: playbackState,
+                      favorites: _favorites,
                       isPicking: _isPicking,
                       message: _message,
                       onPickFiles: _pickAndAddFiles,
                       onSkipToTrack: (index) => _playFromTrack(selected, index),
                       onRemoveTrack: (track) => _removeTrack(selected, track),
                       onReorder: (o, n) => _reorderTrack(selected, o, n),
+                      onToggleFavorite: _favorites == null
+                          ? null
+                          : (track) => _favorites!.toggleTrack(track.id),
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -306,21 +337,25 @@ class _PlaylistListPanel extends StatelessWidget {
     required this.playlists,
     required this.selectedId,
     required this.playbackState,
+    required this.favorites,
     required this.onCreate,
     required this.onSelect,
     required this.onPlay,
     required this.onRename,
     required this.onDelete,
+    required this.onToggleFavorite,
   });
 
   final List<Playlist> playlists;
   final String? selectedId;
   final PlaylistPlaybackState playbackState;
+  final FavoritesController? favorites;
   final VoidCallback onCreate;
   final ValueChanged<String> onSelect;
   final ValueChanged<Playlist> onPlay;
   final ValueChanged<Playlist> onRename;
   final ValueChanged<Playlist> onDelete;
+  final ValueChanged<Playlist>? onToggleFavorite;
 
   @override
   Widget build(BuildContext context) {
@@ -382,6 +417,21 @@ class _PlaylistListPanel extends StatelessWidget {
                   trailing: Wrap(
                     spacing: 0,
                     children: [
+                      if (onToggleFavorite != null)
+                        IconButton(
+                          tooltip: 'Favorite ${playlist.name}',
+                          onPressed: () => onToggleFavorite!(playlist),
+                          icon: Icon(
+                            favorites?.isPlaylistFavorite(playlist.id) ?? false
+                                ? Icons.star
+                                : Icons.star_border,
+                            color:
+                                (favorites?.isPlaylistFavorite(playlist.id) ??
+                                    false)
+                                ? Colors.amber
+                                : null,
+                          ),
+                        ),
                       IconButton(
                         tooltip: 'Play ${playlist.name}',
                         onPressed: playlist.tracks.isEmpty
@@ -536,22 +586,26 @@ class _TrackListPanel extends StatelessWidget {
   const _TrackListPanel({
     required this.playlist,
     required this.playbackState,
+    required this.favorites,
     required this.isPicking,
     required this.message,
     required this.onPickFiles,
     required this.onSkipToTrack,
     required this.onRemoveTrack,
     required this.onReorder,
+    required this.onToggleFavorite,
   });
 
   final Playlist playlist;
   final PlaylistPlaybackState playbackState;
+  final FavoritesController? favorites;
   final bool isPicking;
   final String? message;
   final VoidCallback onPickFiles;
   final ValueChanged<int> onSkipToTrack;
   final ValueChanged<PlaylistTrack> onRemoveTrack;
   final void Function(int oldIndex, int newIndex) onReorder;
+  final ValueChanged<PlaylistTrack>? onToggleFavorite;
 
   @override
   Widget build(BuildContext context) {
@@ -609,6 +663,21 @@ class _TrackListPanel extends StatelessWidget {
                     trailing: Wrap(
                       spacing: 0,
                       children: [
+                        if (onToggleFavorite != null)
+                          IconButton(
+                            tooltip: 'Favorite ${track.source.displayName}',
+                            onPressed: () => onToggleFavorite!(track),
+                            icon: Icon(
+                              favorites?.isTrackFavorite(track.id) ?? false
+                                  ? Icons.star
+                                  : Icons.star_border,
+                              color:
+                                  (favorites?.isTrackFavorite(track.id) ??
+                                      false)
+                                  ? Colors.amber
+                                  : null,
+                            ),
+                          ),
                         IconButton(
                           tooltip: 'Play from here',
                           onPressed: () => onSkipToTrack(index),
