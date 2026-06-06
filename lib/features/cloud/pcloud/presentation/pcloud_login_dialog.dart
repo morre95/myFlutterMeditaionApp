@@ -174,16 +174,26 @@ class _PCloudCodeDialogState extends State<_PCloudCodeDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Two-factor authentication'),
-      content: TextField(
-        controller: _code,
-        autofocus: true,
-        keyboardType: TextInputType.number,
-        decoration: const InputDecoration(
-          labelText: 'Authenticator code',
-          hintText: '6-digit code',
-        ),
-        onSubmitted: (_) => _submit(),
+      title: const Text('Verification code'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'pCloud sent a verification code. Check your authenticator app, '
+            'SMS, pCloud app notification, or email, and enter it below.',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _code,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Verification code',
+              hintText: '6-digit code',
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+        ],
       ),
       actions: [
         TextButton(

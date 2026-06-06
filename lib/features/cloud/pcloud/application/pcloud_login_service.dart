@@ -73,12 +73,13 @@ class PCloudLoginService {
 
     final error = json['error'] as String? ?? 'Invalid email or password.';
     final token = json['token'] as String?;
-    // Credentials were accepted but pCloud wants the 2FA code, indicated either
-    // by a verification token or an error explicitly asking for the code.
+    // Credentials were accepted but pCloud wants a verification code, indicated
+    // either by a verification token or an error explicitly asking for a code.
     if (!params.containsKey('code') &&
         (token != null || error.toLowerCase().contains('code'))) {
       throw PCloudTfaRequiredException(token: token);
     }
-    throw PCloudException(error);
+    // Surface the numeric result code to make diagnosing login issues possible.
+    throw PCloudException('$error (pCloud result $result)');
   }
 }

@@ -95,7 +95,7 @@ void main() {
         isA<PCloudException>().having(
           (e) => e.message,
           'message',
-          'Log in failed.',
+          contains('Log in failed.'),
         ),
       ),
     );
