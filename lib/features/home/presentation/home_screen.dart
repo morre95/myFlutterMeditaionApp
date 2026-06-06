@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../shared/presentation/gradient_background.dart';
+import '../../history/presentation/history_screen.dart';
 import '../../library/presentation/library_screen.dart';
 import '../../music_mode/presentation/music_mode_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
@@ -45,6 +46,13 @@ class HomeScreen extends StatelessWidget {
                 description: 'Browse local and cloud audio sources.',
                 icon: Icons.library_music,
                 onTap: () => _open(context, const LibraryScreen()),
+              ),
+              const SizedBox(height: 12),
+              _HomeFeatureCard(
+                title: 'Progress',
+                description: 'See your meditation streak and session history.',
+                icon: Icons.insights,
+                onTap: () => _open(context, const HistoryScreen()),
               ),
               const SizedBox(height: 12),
               _HomeFeatureCard(
