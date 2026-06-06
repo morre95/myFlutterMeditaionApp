@@ -16,7 +16,7 @@ class SecureStoragePCloudSessionStore implements PCloudSessionStore {
   SecureStoragePCloudSessionStore({FlutterSecureStorage? storage})
     : _storage = storage ?? const FlutterSecureStorage();
 
-  static const _tokenKey = 'pcloud_access_token';
+  static const _tokenKey = 'pcloud_auth_token';
   static const _hostKey = 'pcloud_api_host';
 
   final FlutterSecureStorage _storage;
@@ -26,12 +26,12 @@ class SecureStoragePCloudSessionStore implements PCloudSessionStore {
     final token = await _storage.read(key: _tokenKey);
     final host = await _storage.read(key: _hostKey);
     if (token == null || host == null) return null;
-    return PCloudSession(accessToken: token, apiHost: host);
+    return PCloudSession(authToken: token, apiHost: host);
   }
 
   @override
   Future<void> write(PCloudSession session) async {
-    await _storage.write(key: _tokenKey, value: session.accessToken);
+    await _storage.write(key: _tokenKey, value: session.authToken);
     await _storage.write(key: _hostKey, value: session.apiHost);
   }
 

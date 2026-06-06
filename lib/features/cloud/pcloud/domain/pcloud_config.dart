@@ -1,31 +1,20 @@
-/// Static configuration for the pCloud OAuth integration.
-///
-/// The OAuth client id must be supplied at build time and is never committed:
-///   flutter run --dart-define=PCLOUD_CLIENT_ID=your_client_id
-///
-/// Register an app at https://docs.pcloud.com/ and set its redirect URI to
-/// [redirectUri]. The implicit ("token") flow is used because the app is a
-/// public client with no backend to hold a client secret.
-class PCloudConfig {
-  const PCloudConfig._();
+/// pCloud accounts live in one of two data regions, each with its own API host.
+enum PCloudRegion {
+  us('api.pcloud.com', 'United States'),
+  eu('eapi.pcloud.com', 'Europe');
 
-  static const String clientId = String.fromEnvironment('PCLOUD_CLIENT_ID');
+  const PCloudRegion(this.apiHost, this.label);
 
-  static const String callbackUrlScheme = 'mymeditation';
-  static const String redirectUri = 'mymeditation://oauth';
-  static const String authorizeEndpoint =
-      'https://my.pcloud.com/oauth2/authorize';
-
-  static bool get isConfigured => clientId.isNotEmpty;
+  final String apiHost;
+  final String label;
 }
 
+/// An authenticated pCloud session: the long-lived auth token plus the region
+/// API host it belongs to. Obtained via username/password login.
 class PCloudSession {
-  const PCloudSession({required this.accessToken, required this.apiHost});
+  const PCloudSession({required this.authToken, required this.apiHost});
 
-  final String accessToken;
-
-  /// The region-specific API host, e.g. `api.pcloud.com` (US) or
-  /// `eapi.pcloud.com` (EU).
+  final String authToken;
   final String apiHost;
 }
 
@@ -36,4 +25,14 @@ class PCloudException implements Exception {
 
   @override
   String toString() => 'PCloudException: $message';
+}
+
+/// Thrown when an account has two-factor authentication enabled, which direct
+/// username/password login cannot complete.
+class PCloudTfaRequiredException extends PCloudException {
+  const PCloudTfaRequiredException()
+    : super(
+        'This account uses two-factor authentication, which direct login does '
+        'not support. Disable 2FA in pCloud settings to connect.',
+      );
 }

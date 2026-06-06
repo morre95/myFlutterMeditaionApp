@@ -1,51 +1,38 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:my_meditation_app/features/cloud/pcloud/application/oauth_authenticator.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_login_service.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_session_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/domain/pcloud_config.dart';
 
 void main() {
-  group('parseCallback', () {
-    test('reads the access token and hostname from the fragment', () {
-      final session = PCloudAuthController.parseCallback(
-        'mymeditation://oauth#access_token=tok123&token_type=bearer'
-        '&hostname=eapi.pcloud.com',
-      );
+  test('login stores the session and exposes connection state', () async {
+    final store = _FakeSessionStore();
+    final controller = PCloudAuthController(
+      loginService: _StubLoginService(
+        const PCloudSession(authToken: 'tok', apiHost: 'api.pcloud.com'),
+      ),
+      store: store,
+    );
 
-      expect(session.accessToken, 'tok123');
-      expect(session.apiHost, 'eapi.pcloud.com');
-    });
+    await controller.login(
+      email: 'a@b.com',
+      password: 'pw',
+      region: PCloudRegion.us,
+    );
 
-    test('maps locationid 2 to the EU host', () {
-      final session = PCloudAuthController.parseCallback(
-        'mymeditation://oauth#access_token=tok&locationid=2',
-      );
-
-      expect(session.apiHost, 'eapi.pcloud.com');
-    });
-
-    test('defaults to the US host when no region is given', () {
-      final session = PCloudAuthController.parseCallback(
-        'mymeditation://oauth#access_token=tok',
-      );
-
-      expect(session.apiHost, 'api.pcloud.com');
-    });
-
-    test('throws when the token is missing', () {
-      expect(
-        () =>
-            PCloudAuthController.parseCallback('mymeditation://oauth#error=1'),
-        throwsA(isA<PCloudException>()),
-      );
-    });
+    expect(controller.isConnected, isTrue);
+    expect(controller.authToken, 'tok');
+    expect(controller.apiHost, 'api.pcloud.com');
+    expect(store.session?.authToken, 'tok');
   });
 
   test('disconnect clears the session and store', () async {
     final store = _FakeSessionStore()
-      ..session = const PCloudSession(accessToken: 't', apiHost: 'h');
+      ..session = const PCloudSession(authToken: 't', apiHost: 'h');
     final controller = PCloudAuthController(
-      authenticator: _FakeAuthenticator(''),
+      loginService: _StubLoginService(
+        const PCloudSession(authToken: 't', apiHost: 'h'),
+      ),
       store: store,
     );
 
@@ -54,18 +41,32 @@ void main() {
     expect(controller.isConnected, isFalse);
     expect(store.session, isNull);
   });
+
+  test('loadStoredSession tolerates a failing store', () async {
+    final controller = PCloudAuthController(
+      loginService: _StubLoginService(
+        const PCloudSession(authToken: 't', apiHost: 'h'),
+      ),
+      store: _ThrowingSessionStore(),
+    );
+
+    await controller.loadStoredSession();
+
+    expect(controller.isConnected, isFalse);
+  });
 }
 
-class _FakeAuthenticator implements OAuthAuthenticator {
-  _FakeAuthenticator(this.callback);
+class _StubLoginService implements PCloudLoginService {
+  _StubLoginService(this._session);
 
-  final String callback;
+  final PCloudSession _session;
 
   @override
-  Future<String> authenticate({
-    required String url,
-    required String callbackUrlScheme,
-  }) async => callback;
+  Future<PCloudSession> login({
+    required String email,
+    required String password,
+    required PCloudRegion region,
+  }) async => _session;
 }
 
 class _FakeSessionStore implements PCloudSessionStore {
@@ -79,4 +80,15 @@ class _FakeSessionStore implements PCloudSessionStore {
 
   @override
   Future<void> clear() async => session = null;
+}
+
+class _ThrowingSessionStore implements PCloudSessionStore {
+  @override
+  Future<PCloudSession?> read() async => throw Exception('no secure storage');
+
+  @override
+  Future<void> write(PCloudSession s) async {}
+
+  @override
+  Future<void> clear() async {}
 }

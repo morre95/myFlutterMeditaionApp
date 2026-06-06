@@ -62,7 +62,7 @@ void main() {
 
 class _FakeSession implements PCloudSessionProvider {
   @override
-  String? get accessToken => 'tok';
+  String? get authToken => 'tok';
 
   @override
   String? get apiHost => 'api.pcloud.com';

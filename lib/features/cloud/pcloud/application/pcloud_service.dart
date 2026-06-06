@@ -73,16 +73,13 @@ class PCloudService {
     String endpoint,
     Map<String, String> params,
   ) async {
-    final token = _session.accessToken;
+    final token = _session.authToken;
     final host = _session.apiHost;
     if (token == null || host == null) {
       throw const PCloudException('Not connected to pCloud.');
     }
 
-    final uri = Uri.https(host, '/$endpoint', {
-      ...params,
-      'access_token': token,
-    });
+    final uri = Uri.https(host, '/$endpoint', {...params, 'auth': token});
     final response = await _client.get(uri);
     if (response.statusCode != 200) {
       throw PCloudException('pCloud request failed (${response.statusCode}).');

@@ -6,6 +6,7 @@ import '../../../shared/presentation/gradient_background.dart';
 import '../../cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../../cloud/pcloud/application/pcloud_service.dart';
 import '../../cloud/pcloud/domain/pcloud_config.dart';
+import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../playlists/application/playlist_controller.dart';
 import '../application/local_wav_picker_service.dart';
 import 'pcloud_browser_screen.dart';
@@ -100,12 +101,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _connectPCloud() async {
+    final request = await showPCloudLoginDialog(context);
+    if (request == null || !mounted) return;
     setState(() {
       _busy = true;
       _message = null;
     });
     try {
-      await _pcloudAuth.connect();
+      await _pcloudAuth.login(
+        email: request.email,
+        password: request.password,
+        region: request.region,
+      );
     } on PCloudException catch (e) {
       if (mounted) setState(() => _message = e.message);
     } catch (_) {
@@ -204,15 +211,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _buildPCloudCard() {
-    if (!_pcloudAuth.isConfigured) {
-      return const Card(
-        child: ListTile(
-          leading: Icon(Icons.cloud_off),
-          title: Text('pCloud'),
-          subtitle: Text('Not configured for this build.'),
-        ),
-      );
-    }
     if (!_pcloudAuth.isConnected) {
       return Card(
         child: ListTile(

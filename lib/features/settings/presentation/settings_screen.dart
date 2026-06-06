@@ -4,6 +4,7 @@ import '../../../app/app_scope.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../../cloud/pcloud/domain/pcloud_config.dart';
+import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../library/application/local_wav_picker_service.dart'
     show FilePickerLocalAudioPicker, LocalAudioFilePicker;
 import '../application/app_settings_controller.dart';
@@ -56,17 +57,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _connectPCloud() async {
+    final request = await showPCloudLoginDialog(context);
+    if (request == null || !mounted) return;
     setState(() {
       _isConnecting = true;
       _pcloudMessage = null;
     });
     try {
-      await _pcloudAuth.connect();
+      await _pcloudAuth.login(
+        email: request.email,
+        password: request.password,
+        region: request.region,
+      );
     } on PCloudException catch (e) {
       if (mounted) setState(() => _pcloudMessage = e.message);
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => _pcloudMessage = 'Could not connect to pCloud.');
+      }
     } finally {
       if (mounted) setState(() => _isConnecting = false);
     }
@@ -119,49 +127,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            if (!_pcloudAuth.isConfigured)
+            Text(
+              _pcloudAuth.isConnected
+                  ? 'Connected. Browse your pCloud audio from the Library.'
+                  : 'Connect with your pCloud email and password to stream '
+                        'audio from your account.',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+            ),
+            if (_pcloudMessage != null) ...[
+              const SizedBox(height: 8),
               Text(
-                'pCloud is not configured for this build. Provide a client id '
-                'with --dart-define=PCLOUD_CLIENT_ID=… to enable it.',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
-              )
-            else ...[
-              Text(
-                _pcloudAuth.isConnected
-                    ? 'Connected. Browse your pCloud audio from the Library.'
-                    : 'Connect to stream audio from your pCloud account.',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
-              ),
-              if (_pcloudMessage != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _pcloudMessage!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: _pcloudAuth.isConnected
-                    ? OutlinedButton.icon(
-                        onPressed: _disconnectPCloud,
-                        icon: const Icon(Icons.logout, size: 18),
-                        label: const Text('Disconnect'),
-                      )
-                    : FilledButton.icon(
-                        onPressed: _isConnecting ? null : _connectPCloud,
-                        icon: _isConnecting
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.login, size: 18),
-                        label: Text(_isConnecting ? 'Connecting…' : 'Connect'),
-                      ),
+                _pcloudMessage!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _pcloudAuth.isConnected
+                  ? OutlinedButton.icon(
+                      onPressed: _disconnectPCloud,
+                      icon: const Icon(Icons.logout, size: 18),
+                      label: const Text('Disconnect'),
+                    )
+                  : FilledButton.icon(
+                      onPressed: _isConnecting ? null : _connectPCloud,
+                      icon: _isConnecting
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.login, size: 18),
+                      label: Text(_isConnecting ? 'Connecting…' : 'Connect'),
+                    ),
+            ),
           ],
         ),
       ),

@@ -1,51 +1,39 @@
 # pCloud setup
 
 The app can stream audio from a user's pCloud account. pCloud is optional — the
-app runs fully (timer, music, history, favorites, local audio) without it. When
-no client id is provided, the pCloud UI shows a "not configured" state.
+app runs fully (timer, music, history, favorites, local audio) without it.
 
-## 1. Register a pCloud app
+There is **no app registration or client id required**. The app signs in with
+your pCloud email and password using pCloud's direct login endpoint.
 
-1. Go to https://docs.pcloud.com/ → **My applications** and create an app.
-2. Set the **redirect URI** to:
+## Connecting
 
-   ```
-   mymeditation://oauth
-   ```
+1. Open **Settings** (or **Library → pCloud**) and tap **Connect**.
+2. Enter your pCloud **email** and **password**, and choose your **data region**:
+   - **United States** → `api.pcloud.com`
+   - **Europe** → `eapi.pcloud.com`
 
-   This must match `PCloudConfig.redirectUri` /
-   `PCloudConfig.callbackUrlScheme` in
-   `lib/features/cloud/pcloud/domain/pcloud_config.dart`.
-3. Copy the app's **client id**.
+   If login fails with the wrong region, switch the region and try again.
+3. Once connected, browse and add audio from **Library → pCloud**.
 
-## 2. Run / build with the client id
+## How it works
 
-The client id is supplied at build time and never committed:
-
-```bash
-flutter run --dart-define=PCLOUD_CLIENT_ID=your_client_id
-# or
-flutter build apk --dart-define=PCLOUD_CLIENT_ID=your_client_id
-```
-
-## 3. How it works
-
-- **Auth**: OAuth 2.0 implicit ("token") flow via `flutter_web_auth_2`. Suitable
-  for a public mobile client with no backend (no client secret).
-- **Token storage**: the access token + region API host are stored in the
-  platform secure storage (`flutter_secure_storage`), never in shared
-  preferences.
-- **Browsing**: `listfolder` lists folders and audio files
-  (`Library → pCloud`).
-- **Streaming**: at playback time, `getfilelink` resolves a fresh temporary URL
+- **Login**: `GET https://{region-host}/userinfo?getauth=1&username=…&password=…`
+  over HTTPS returns a long-lived `auth` token
+  (see https://docs.pcloud.com/methods/intro/authentication.html).
+- **Token storage**: only the `auth` token + region host are stored, in the
+  platform secure storage (`flutter_secure_storage`). Your password is sent
+  once to pCloud over HTTPS and is **never stored**.
+- **Browsing**: `listfolder` lists folders and audio files.
+- **Streaming**: at playback time `getfilelink` resolves a fresh temporary URL
   that audioplayers streams via `UrlSource`. Links are short-lived and never
   persisted — only the pCloud file id is stored in the playlist.
+- Disconnect from **Settings** clears the stored token.
 
-## Android
+## Two-factor authentication (2FA)
 
-`android/app/src/main/AndroidManifest.xml` registers the
-`flutter_web_auth_2` `CallbackActivity` for the `mymeditation` scheme. If you
-change the scheme, update both the manifest and `PCloudConfig`.
+Direct login does not support accounts with 2FA enabled. If your account uses
+2FA, the app shows a clear message; disable 2FA in pCloud settings to connect.
 
 ## Other cloud providers
 

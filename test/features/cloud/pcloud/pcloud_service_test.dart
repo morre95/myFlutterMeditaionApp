@@ -16,7 +16,7 @@ void main() {
       expect(request.url.host, 'api.pcloud.com');
       expect(request.url.path, '/listfolder');
       expect(request.url.queryParameters['folderid'], '0');
-      expect(request.url.queryParameters['access_token'], 'tok');
+      expect(request.url.queryParameters['auth'], 'tok');
       return http.Response(
         jsonEncode({
           'result': 0,
@@ -82,7 +82,7 @@ class _FakeSession implements PCloudSessionProvider {
   final String host;
 
   @override
-  String? get accessToken => token;
+  String? get authToken => token;
 
   @override
   String? get apiHost => host;
