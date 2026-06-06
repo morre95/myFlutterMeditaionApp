@@ -114,11 +114,12 @@ class PlaylistController extends ChangeNotifier {
 
     final tracks = List<PlaylistTrack>.from(_playlists[index].tracks);
     if (oldIndex < 0 || oldIndex >= tracks.length) return;
-    if (newIndex < 0 || newIndex > tracks.length) return;
+    // [newIndex] is the final target index (already adjusted by the
+    // ReorderableListView onReorderItem callback for the removed item).
+    if (newIndex < 0 || newIndex >= tracks.length) return;
 
     final track = tracks.removeAt(oldIndex);
-    final adjusted = newIndex > oldIndex ? newIndex - 1 : newIndex;
-    tracks.insert(adjusted, track);
+    tracks.insert(newIndex, track);
     _playlists[index] = _playlists[index].copyWith(tracks: tracks);
     await _persist();
   }

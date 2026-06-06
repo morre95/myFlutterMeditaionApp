@@ -61,8 +61,7 @@ class AppDependencies {
       pcloudAuthController: auth,
       pcloudService: service,
       timerSettingsRepository:
-          timerSettingsRepository ??
-          SharedPreferencesTimerSettingsRepository(),
+          timerSettingsRepository ?? SharedPreferencesTimerSettingsRepository(),
       playbackSourceResolver:
           playbackSourceResolver ??
           PCloudPlaybackSourceResolver(service: service),

@@ -141,7 +141,8 @@ void main() {
     final p = await c.create('Shuffle');
     await c.addTracks(p.id, [_source('a'), _source('b'), _source('c')]);
 
-    await c.reorderTrack(p.id, oldIndex: 0, newIndex: 3);
+    // newIndex is the final target index (onReorderItem semantics).
+    await c.reorderTrack(p.id, oldIndex: 0, newIndex: 2);
 
     expect(c.selectedPlaylist!.tracks.map((t) => t.source.id), ['b', 'c', 'a']);
     c.dispose();

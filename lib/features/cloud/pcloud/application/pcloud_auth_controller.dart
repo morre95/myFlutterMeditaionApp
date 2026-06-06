@@ -48,13 +48,15 @@ class PCloudAuthController extends ChangeNotifier
     if (!isConfigured) {
       throw const PCloudException('pCloud client id is not configured.');
     }
-    final authUrl = Uri.parse(PCloudConfig.authorizeEndpoint).replace(
-      queryParameters: {
-        'client_id': PCloudConfig.clientId,
-        'response_type': 'token',
-        'redirect_uri': PCloudConfig.redirectUri,
-      },
-    ).toString();
+    final authUrl = Uri.parse(PCloudConfig.authorizeEndpoint)
+        .replace(
+          queryParameters: {
+            'client_id': PCloudConfig.clientId,
+            'response_type': 'token',
+            'redirect_uri': PCloudConfig.redirectUri,
+          },
+        )
+        .toString();
 
     final callback = await _authenticator.authenticate(
       url: authUrl,

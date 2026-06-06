@@ -14,7 +14,8 @@ class AppSettingsController extends ChangeNotifier {
 
   List<AudioSource> _customBells = [];
 
-  List<AudioSource> get customBells => List<AudioSource>.unmodifiable(_customBells);
+  List<AudioSource> get customBells =>
+      List<AudioSource>.unmodifiable(_customBells);
 
   Future<void> load() async {
     _customBells = await _repository.loadCustomBells();

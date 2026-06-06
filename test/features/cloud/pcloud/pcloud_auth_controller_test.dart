@@ -34,7 +34,8 @@ void main() {
 
     test('throws when the token is missing', () {
       expect(
-        () => PCloudAuthController.parseCallback('mymeditation://oauth#error=1'),
+        () =>
+            PCloudAuthController.parseCallback('mymeditation://oauth#error=1'),
         throwsA(isA<PCloudException>()),
       );
     });

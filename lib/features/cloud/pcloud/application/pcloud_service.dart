@@ -47,11 +47,12 @@ class PCloudService {
       if (source.isSupportedAudio) audioFiles.add(source);
     }
 
-    folders.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    folders.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
     audioFiles.sort(
-      (a, b) => a.displayName.toLowerCase().compareTo(
-        b.displayName.toLowerCase(),
-      ),
+      (a, b) =>
+          a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
     );
     return PCloudListing(folders: folders, audioFiles: audioFiles);
   }

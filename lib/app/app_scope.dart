@@ -4,11 +4,7 @@ import 'app_dependencies.dart';
 
 /// Exposes the shared [AppDependencies] to the widget tree.
 class AppScope extends InheritedWidget {
-  const AppScope({
-    super.key,
-    required this.dependencies,
-    required super.child,
-  });
+  const AppScope({super.key, required this.dependencies, required super.child});
 
   final AppDependencies dependencies;
 

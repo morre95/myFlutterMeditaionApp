@@ -71,10 +71,7 @@ void main() {
     });
     final service = PCloudService(session: session, client: client);
 
-    expect(
-      () => service.listFolder(0),
-      throwsA(isA<PCloudException>()),
-    );
+    expect(() => service.listFolder(0), throwsA(isA<PCloudException>()));
   });
 }
 

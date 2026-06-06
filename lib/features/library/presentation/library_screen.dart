@@ -149,8 +149,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.of(ctx).pop(controller.text.trim()),
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
             child: const Text('Create'),
           ),
         ],
@@ -186,7 +185,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     child: ListTile(
                       leading: const Icon(Icons.smartphone),
                       title: const Text('Local phone storage'),
-                      subtitle: const Text('Pick audio files from this device.'),
+                      subtitle: const Text(
+                        'Pick audio files from this device.',
+                      ),
                       trailing: const Icon(Icons.add),
                       onTap: _busy ? null : _addFromDevice,
                     ),

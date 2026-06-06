@@ -48,18 +48,21 @@ void main() {
       expect(controller.currentStreak, 2);
     });
 
-    test('resets when the most recent session is older than yesterday', () async {
-      final repo = _FakeSessionRepository([
-        sessionOn(DateTime(2026, 6, 3, 8)),
-      ]);
-      final controller = HistoryController(
-        repository: repo,
-        clock: () => DateTime(2026, 6, 6, 9),
-      );
-      await controller.load();
+    test(
+      'resets when the most recent session is older than yesterday',
+      () async {
+        final repo = _FakeSessionRepository([
+          sessionOn(DateTime(2026, 6, 3, 8)),
+        ]);
+        final controller = HistoryController(
+          repository: repo,
+          clock: () => DateTime(2026, 6, 6, 9),
+        );
+        await controller.load();
 
-      expect(controller.currentStreak, 0);
-    });
+        expect(controller.currentStreak, 0);
+      },
+    );
 
     test('multiple sessions on the same day count once', () async {
       final repo = _FakeSessionRepository([

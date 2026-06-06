@@ -65,7 +65,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } on PCloudException catch (e) {
       if (mounted) setState(() => _pcloudMessage = e.message);
     } catch (_) {
-      if (mounted) setState(() => _pcloudMessage = 'Could not connect to pCloud.');
+      if (mounted)
+        setState(() => _pcloudMessage = 'Could not connect to pCloud.');
     } finally {
       if (mounted) setState(() => _isConnecting = false);
     }
@@ -152,7 +153,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: _isConnecting
                             ? const SizedBox.square(
                                 dimension: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.login, size: 18),
                         label: Text(_isConnecting ? 'Connecting…' : 'Connect'),
@@ -208,7 +211,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         ),
                                       )
                                     : const Icon(Icons.add, size: 18),
-                                label: Text(_isPicking ? 'Adding…' : 'Add bell'),
+                                label: Text(
+                                  _isPicking ? 'Adding…' : 'Add bell',
+                                ),
                               ),
                             ],
                           ),

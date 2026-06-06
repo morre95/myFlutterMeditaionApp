@@ -61,10 +61,12 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     // Resolve shared singletons from AppScope unless overridden (tests inject
     // the core controllers to run without an AppScope ancestor).
     final injectedForTest =
-        widget._playlistController != null && widget._playbackController != null;
+        widget._playlistController != null &&
+        widget._playbackController != null;
     final scope = injectedForTest ? null : AppScope.of(context);
 
-    _playlistController = widget._playlistController ?? scope!.playlistController;
+    _playlistController =
+        widget._playlistController ?? scope!.playlistController;
     _playbackController =
         widget._playbackController ??
         LocalAudioPlaybackController(resolver: scope!.playbackSourceResolver);
@@ -223,8 +225,9 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     final favored = <Playlist>[];
     final rest = <Playlist>[];
     for (final playlist in playlists) {
-      (favorites.isPlaylistFavorite(playlist.id) ? favored : rest)
-          .add(playlist);
+      (favorites.isPlaylistFavorite(playlist.id) ? favored : rest).add(
+        playlist,
+      );
     }
     return [...favored, ...rest];
   }
@@ -259,9 +262,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final playlists = _sortedPlaylists(
-                _playlistController.playlists,
-              );
+              final playlists = _sortedPlaylists(_playlistController.playlists);
               final selectedId = _playlistController.selectedId;
               final selected = _playlistController.selectedPlaylist;
               final playbackState = _playlistPlaybackController.state;
@@ -281,8 +282,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                     onDelete: _deletePlaylist,
                     onToggleFavorite: _favorites == null
                         ? null
-                        : (playlist) =>
-                              _favorites!.togglePlaylist(playlist.id),
+                        : (playlist) => _favorites!.togglePlaylist(playlist.id),
                   ),
                   const SizedBox(height: 12),
                   _PlaybackPanel(
@@ -646,7 +646,7 @@ class _TrackListPanel extends StatelessWidget {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: tracks.length,
-                onReorder: onReorder,
+                onReorderItem: onReorder,
                 itemBuilder: (context, index) {
                   final track = tracks[index];
                   final isCurrentTrack =

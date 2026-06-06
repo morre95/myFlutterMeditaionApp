@@ -150,7 +150,10 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
                             ],
                             onChanged: (value) {
                               if (value == null) return;
-                              final selection = _bellFromKey(value, customBells);
+                              final selection = _bellFromKey(
+                                value,
+                                customBells,
+                              );
                               if (selection != null) {
                                 _controller.setBell(selection);
                               }
