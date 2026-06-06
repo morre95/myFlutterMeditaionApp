@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../app/app_scope.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../cloud/pcloud/application/pcloud_auth_controller.dart';
-import '../../cloud/pcloud/domain/pcloud_config.dart';
 import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../library/application/local_wav_picker_service.dart'
     show FilePickerLocalAudioPicker, LocalAudioFilePicker;
@@ -57,26 +56,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _connectPCloud() async {
-    final request = await showPCloudLoginDialog(context);
-    if (request == null || !mounted) return;
     setState(() {
       _isConnecting = true;
       _pcloudMessage = null;
     });
-    try {
-      await _pcloudAuth.login(
-        email: request.email,
-        password: request.password,
-        region: request.region,
-      );
-    } on PCloudException catch (e) {
-      if (mounted) setState(() => _pcloudMessage = e.message);
-    } catch (_) {
-      if (mounted) {
-        setState(() => _pcloudMessage = 'Could not connect to pCloud.');
-      }
-    } finally {
-      if (mounted) setState(() => _isConnecting = false);
+    final error = await connectToPCloud(context, _pcloudAuth);
+    if (mounted) {
+      setState(() {
+        _isConnecting = false;
+        _pcloudMessage = error;
+      });
     }
   }
 

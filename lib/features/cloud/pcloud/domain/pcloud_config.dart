@@ -27,12 +27,12 @@ class PCloudException implements Exception {
   String toString() => 'PCloudException: $message';
 }
 
-/// Thrown when an account has two-factor authentication enabled, which direct
-/// username/password login cannot complete.
+/// Thrown when an account has two-factor authentication enabled and pCloud is
+/// asking for the second-factor code. [token] is the pCloud verification token
+/// returned alongside the prompt (may be null for code-in-same-request flows).
 class PCloudTfaRequiredException extends PCloudException {
-  const PCloudTfaRequiredException()
-    : super(
-        'This account uses two-factor authentication, which direct login does '
-        'not support. Disable 2FA in pCloud settings to connect.',
-      );
+  const PCloudTfaRequiredException({this.token})
+    : super('Enter the code from your authenticator app to finish signing in.');
+
+  final String? token;
 }

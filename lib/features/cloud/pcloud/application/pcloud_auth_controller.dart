@@ -47,16 +47,42 @@ class PCloudAuthController extends ChangeNotifier
 
   /// Logs in and stores the session. Throws [PCloudTfaRequiredException] if the
   /// account uses 2FA, or [PCloudException] for bad credentials / region.
+  /// Logs in. Throws [PCloudTfaRequiredException] (call [verifyTfaCode] next) if
+  /// the account uses 2FA, or [PCloudException] for bad credentials / region.
   Future<void> login({
     required String email,
     required String password,
     required PCloudRegion region,
   }) async {
-    final session = await _loginService.login(
-      email: email,
-      password: password,
-      region: region,
+    await _persist(
+      await _loginService.login(
+        email: email,
+        password: password,
+        region: region,
+      ),
     );
+  }
+
+  /// Completes a 2FA login with the authenticator [code].
+  Future<void> verifyTfaCode({
+    required String email,
+    required String password,
+    required PCloudRegion region,
+    required String code,
+    String? token,
+  }) async {
+    await _persist(
+      await _loginService.verifyTfaCode(
+        email: email,
+        password: password,
+        region: region,
+        code: code,
+        token: token,
+      ),
+    );
+  }
+
+  Future<void> _persist(PCloudSession session) async {
     await _store.write(session);
     _session = session;
     notifyListeners();

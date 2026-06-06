@@ -5,7 +5,6 @@ import '../../../shared/domain/audio_source.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../../cloud/pcloud/application/pcloud_service.dart';
-import '../../cloud/pcloud/domain/pcloud_config.dart';
 import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../playlists/application/playlist_controller.dart';
 import '../application/local_wav_picker_service.dart';
@@ -101,24 +100,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _connectPCloud() async {
-    final request = await showPCloudLoginDialog(context);
-    if (request == null || !mounted) return;
     setState(() {
       _busy = true;
       _message = null;
     });
-    try {
-      await _pcloudAuth.login(
-        email: request.email,
-        password: request.password,
-        region: request.region,
-      );
-    } on PCloudException catch (e) {
-      if (mounted) setState(() => _message = e.message);
-    } catch (_) {
-      if (mounted) setState(() => _message = 'Could not connect to pCloud.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
+    final error = await connectToPCloud(context, _pcloudAuth);
+    if (mounted) {
+      setState(() {
+        _busy = false;
+        _message = error;
+      });
     }
   }
 

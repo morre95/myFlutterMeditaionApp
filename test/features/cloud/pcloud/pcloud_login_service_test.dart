@@ -28,23 +28,52 @@ void main() {
     expect(session.apiHost, 'eapi.pcloud.com');
   });
 
-  test('throws PCloudTfaRequiredException when 2FA is required', () async {
+  test('throws PCloudTfaRequiredException when pCloud asks for a code', () async {
     final client = MockClient((request) async {
       return http.Response(
-        jsonEncode({'result': 2297, 'error': 'Please use 2FA.'}),
+        jsonEncode({
+          'result': 2064,
+          'error': "Please provide 'code'.",
+          'token': 'TFATOKEN',
+        }),
         200,
       );
     });
     final service = PCloudLoginService(client: client);
 
-    expect(
+    await expectLater(
       () => service.login(
         email: 'a@b.com',
         password: 'secret',
         region: PCloudRegion.us,
       ),
-      throwsA(isA<PCloudTfaRequiredException>()),
+      throwsA(
+        isA<PCloudTfaRequiredException>().having(
+          (e) => e.token,
+          'token',
+          'TFATOKEN',
+        ),
+      ),
     );
+  });
+
+  test('verifyTfaCode sends the code and token and returns the session', () async {
+    final client = MockClient((request) async {
+      expect(request.url.queryParameters['code'], '123456');
+      expect(request.url.queryParameters['token'], 'TFATOKEN');
+      return http.Response(jsonEncode({'result': 0, 'auth': 'TOKEN'}), 200);
+    });
+    final service = PCloudLoginService(client: client);
+
+    final session = await service.verifyTfaCode(
+      email: 'a@b.com',
+      password: 'secret',
+      region: PCloudRegion.us,
+      code: '123456',
+      token: 'TFATOKEN',
+    );
+
+    expect(session.authToken, 'TOKEN');
   });
 
   test('throws PCloudException with the API error on bad credentials', () async {

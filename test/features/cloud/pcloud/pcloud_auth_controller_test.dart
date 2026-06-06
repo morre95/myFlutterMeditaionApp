@@ -67,6 +67,15 @@ class _StubLoginService implements PCloudLoginService {
     required String password,
     required PCloudRegion region,
   }) async => _session;
+
+  @override
+  Future<PCloudSession> verifyTfaCode({
+    required String email,
+    required String password,
+    required PCloudRegion region,
+    required String code,
+    String? token,
+  }) async => _session;
 }
 
 class _FakeSessionStore implements PCloudSessionStore {
