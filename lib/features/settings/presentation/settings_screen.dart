@@ -6,6 +6,7 @@ import '../../cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../library/application/local_wav_picker_service.dart'
     show FilePickerLocalAudioPicker, LocalAudioFilePicker;
+import '../../timer/domain/bell_selection.dart';
 import '../application/app_settings_controller.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -92,6 +93,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _isPicking = false);
     }
+  }
+
+  Future<void> _toggleBuiltInBell(BuiltInBell bell, bool enable) async {
+    if (enable) {
+      await _settings.enableBuiltInBell(bell.id);
+      if (mounted) setState(() => _message = 'Enabled "${bell.label}".');
+      return;
+    }
+    final disabled = await _settings.disableBuiltInBell(bell.id);
+    if (!mounted) return;
+    setState(() {
+      _message = disabled
+          ? 'Disabled "${bell.label}". Re-enable it any time.'
+          : 'At least one preinstalled bell must stay active.';
+    });
   }
 
   Widget _buildPCloudCard(BuildContext context) {
@@ -207,8 +223,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Add your own audio files to use as the timer\'s '
-                            'ending bell. Pick the bell itself in Timer Mode.',
+                            'Disable preinstalled bells to hide them from the '
+                            'timer, or remove your own. Pick the active bell in '
+                            'Timer Mode.',
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.7),
                             ),
@@ -217,9 +234,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const SizedBox(height: 8),
                             Text(_message!),
                           ],
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Preinstalled',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          ...builtInBells.map((bell) {
+                            final enabled = _settings.isBuiltInBellEnabled(
+                              bell.id,
+                            );
+                            return SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              secondary: Icon(
+                                enabled
+                                    ? Icons.notifications_active
+                                    : Icons.notifications_off,
+                              ),
+                              title: Text(bell.label),
+                              subtitle: Text(enabled ? 'Active' : 'Disabled'),
+                              value: enabled,
+                              onChanged: (value) =>
+                                  _toggleBuiltInBell(bell, value),
+                            );
+                          }),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Your bells',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
                           if (customBells.isEmpty)
-                            const Text('No custom bells yet.')
+                            const Padding(
+                              padding: EdgeInsets.only(top: 8),
+                              child: Text('No custom bells yet.'),
+                            )
                           else
                             ...customBells.map(
                               (bell) => ListTile(

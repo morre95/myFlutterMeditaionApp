@@ -53,16 +53,20 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
   }
 
   /// Maps the current [BellSelection] to a dropdown key, falling back to the
-  /// first built-in bell if a previously-selected custom bell was removed.
-  String _currentBellKey(BellSelection bell, List<AudioSource> customBells) {
+  /// first enabled built-in bell if the selected bell was removed or disabled.
+  String _currentBellKey(
+    BellSelection bell,
+    List<AudioSource> customBells,
+    List<BuiltInBell> enabledBuiltIns,
+  ) {
     if (bell.isCustom) {
       final id = bell.source!.id;
       if (customBells.any((b) => b.id == id)) return 'custom:$id';
-      return 'builtin:${builtInBells.first.id}';
+      return 'builtin:${enabledBuiltIns.first.id}';
     }
     final name = bell.name;
-    if (builtInBells.any((b) => b.id == name)) return 'builtin:$name';
-    return 'builtin:${builtInBells.first.id}';
+    if (enabledBuiltIns.any((b) => b.id == name)) return 'builtin:$name';
+    return 'builtin:${enabledBuiltIns.first.id}';
   }
 
   BellSelection? _bellFromKey(String key, List<AudioSource> customBells) {
@@ -88,6 +92,10 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
             builder: (context, _) {
               final state = _controller.state;
               final customBells = _appSettings?.customBells ?? const [];
+              // Without an AppSettings scope (e.g. in tests) every built-in
+              // bell is available.
+              final enabledBuiltIns =
+                  _appSettings?.enabledBuiltInBells ?? builtInBells;
               return ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
@@ -131,13 +139,14 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
                             initialValue: _currentBellKey(
                               state.settings.bell,
                               customBells,
+                              enabledBuiltIns,
                             ),
                             decoration: const InputDecoration(
                               labelText: 'Ending bell',
                               border: OutlineInputBorder(),
                             ),
                             items: [
-                              for (final bell in builtInBells)
+                              for (final bell in enabledBuiltIns)
                                 DropdownMenuItem<String>(
                                   value: 'builtin:${bell.id}',
                                   child: Text(bell.label),
@@ -156,6 +165,9 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
                               );
                               if (selection != null) {
                                 _controller.setBell(selection);
+                                // Preview the bell so the user hears their
+                                // selection immediately.
+                                _controller.previewBell(selection);
                               }
                             },
                           ),

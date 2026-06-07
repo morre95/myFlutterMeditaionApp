@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../history/application/history_controller.dart';
+import '../../history/domain/meditation_session.dart';
 import '../../player/application/playback_source_resolver.dart';
 import '../domain/bell_selection.dart';
 import '../domain/timer_settings.dart';
@@ -143,6 +144,9 @@ class TimerController extends ChangeNotifier {
     _persistSettings();
   }
 
+  /// Plays [bell] so the user can hear their selection before a session ends.
+  Future<void> previewBell(BellSelection bell) => _playBell(bell);
+
   void _persistSettings() {
     final repository = _repository;
     if (repository == null) return;
@@ -205,16 +209,23 @@ class TimerController extends ChangeNotifier {
     );
     // Record the session independently of the bell so a playback error never
     // discards a completed session.
-    unawaited(_history?.record(_state.settings.duration));
-    final selected = _state.settings.bell;
+    unawaited(
+      _history?.record(_state.settings.duration, mode: SessionMode.timer),
+    );
+    await _playBell(_state.settings.bell);
+  }
+
+  /// Plays a bell selection, surfacing a playback failure as an error message
+  /// in state. Shared by end-of-session playback and dropdown previews.
+  Future<void> _playBell(BellSelection bell) async {
     try {
-      if (selected.isCustom) {
-        final media = await _sourceResolver.resolve(selected.source!);
+      if (bell.isCustom) {
+        final media = await _sourceResolver.resolve(bell.source!);
         await _bellPlayer.playMedia(media);
         return;
       }
 
-      final builtIn = _builtInBellFor(selected.name);
+      final builtIn = _builtInBellFor(bell.name);
       if (builtIn == null) {
         _setState(
           _state.copyWith(
@@ -229,7 +240,7 @@ class TimerController extends ChangeNotifier {
       _setState(
         _state.copyWith(
           status: TimerSessionStatus.error,
-          errorMessage: 'Could not play ${selected.displayName}.',
+          errorMessage: 'Could not play ${bell.displayName}.',
         ),
       );
     }

@@ -7,6 +7,7 @@ import '../../cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../../cloud/pcloud/application/pcloud_service.dart';
 import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../favorites/application/favorites_controller.dart';
+import '../../history/application/history_controller.dart';
 import '../../library/application/local_wav_picker_service.dart'
     show FilePickerLocalAudioPicker, LocalAudioFilePicker;
 import '../../library/presentation/pcloud_browser_screen.dart';
@@ -28,13 +29,15 @@ class MusicModeScreen extends StatefulWidget {
     AudioDurationProbe? durationProbe,
     PCloudAuthController? pcloudAuthController,
     PCloudService? pcloudService,
+    HistoryController? historyController,
   }) : _playlistController = playlistController,
        _picker = picker,
        _playbackController = playbackController,
        _favoritesController = favoritesController,
        _durationProbe = durationProbe,
        _pcloudAuthController = pcloudAuthController,
-       _pcloudService = pcloudService;
+       _pcloudService = pcloudService,
+       _historyController = historyController;
 
   final PlaylistController? _playlistController;
   final LocalAudioFilePicker? _picker;
@@ -43,6 +46,7 @@ class MusicModeScreen extends StatefulWidget {
   final AudioDurationProbe? _durationProbe;
   final PCloudAuthController? _pcloudAuthController;
   final PCloudService? _pcloudService;
+  final HistoryController? _historyController;
 
   @override
   State<MusicModeScreen> createState() => _MusicModeScreenState();
@@ -94,6 +98,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     _pcloudService = widget._pcloudService ?? scope?.pcloudService;
     _playlistPlaybackController = PlaylistPlaybackController(
       player: _playbackController,
+      history: widget._historyController ?? scope?.historyController,
     );
   }
 

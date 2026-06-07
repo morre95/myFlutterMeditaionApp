@@ -59,6 +59,42 @@ void main() {
     });
   });
 
+  test('previewBell plays the selected built-in bell immediately', () async {
+    final bellPlayer = _FakeBellPlayer();
+    final controller = TimerController(bellPlayer: bellPlayer);
+
+    await controller.previewBell(const BellSelection.builtIn('bell_2'));
+
+    expect(bellPlayer.playedAsset, 'bells/bell_2.mp3');
+    expect(controller.state.status, TimerSessionStatus.idle);
+
+    controller.dispose();
+  });
+
+  test('previewBell resolves and plays a custom bell', () async {
+    final bellPlayer = _FakeBellPlayer();
+    final controller = TimerController(
+      bellPlayer: bellPlayer,
+      sourceResolver: const LocalPlaybackSourceResolver(),
+    );
+
+    await controller.previewBell(
+      const BellSelection.custom(
+        AudioSource(
+          id: 'local:/bells/gong.mp3',
+          kind: AudioSourceKind.localFile,
+          displayName: 'gong.mp3',
+          reference: '/bells/gong.mp3',
+        ),
+      ),
+    );
+
+    expect(bellPlayer.playedMedia?.kind, PlayableMediaKind.file);
+    expect(bellPlayer.playedMedia?.locator, '/bells/gong.mp3');
+
+    controller.dispose();
+  });
+
   test('records a session in history on completion', () {
     SharedPreferences.setMockInitialValues({});
     fakeAsync((async) {

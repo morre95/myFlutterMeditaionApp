@@ -76,8 +76,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       child: Padding(
                         padding: EdgeInsets.all(16),
                         child: Text(
-                          'No sessions yet. Complete a timer to start your '
-                          'streak.',
+                          'No sessions yet. Complete a timer or music session '
+                          'to start your streak.',
                         ),
                       ),
                     )
@@ -139,12 +139,22 @@ class _SessionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: ListTile(
-        leading: const Icon(Icons.check_circle_outline),
+        leading: Icon(_modeIcon),
         title: Text('${session.duration.inMinutes} minute session'),
-        subtitle: Text(_formatDate(session.completedAt)),
+        subtitle: Text('$_modeLabel · ${_formatDate(session.completedAt)}'),
       ),
     );
   }
+
+  IconData get _modeIcon => switch (session.mode) {
+    SessionMode.timer => Icons.self_improvement,
+    SessionMode.music => Icons.music_note,
+  };
+
+  String get _modeLabel => switch (session.mode) {
+    SessionMode.timer => 'Timer',
+    SessionMode.music => 'Music',
+  };
 
   String _formatDate(DateTime date) {
     String two(int n) => n.toString().padLeft(2, '0');

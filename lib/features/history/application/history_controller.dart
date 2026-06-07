@@ -55,12 +55,13 @@ class HistoryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> record(Duration duration) async {
+  Future<void> record(Duration duration, {required SessionMode mode}) async {
     final completedAt = _now();
     final session = MeditationSession(
       id: 'session-${completedAt.microsecondsSinceEpoch}',
       completedAt: completedAt,
       duration: duration,
+      mode: mode,
     );
     _sessions = [..._sessions, session];
     await _repository.saveAll(_sessions);

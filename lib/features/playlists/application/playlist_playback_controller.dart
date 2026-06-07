@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../../history/application/history_controller.dart';
+import '../../history/domain/meditation_session.dart';
 import '../../player/application/local_audio_playback_controller.dart';
 import '../../player/domain/queue_entry.dart';
 import '../domain/playlist.dart';
@@ -79,13 +82,16 @@ class PlaylistPlaybackState {
 class PlaylistPlaybackController extends ChangeNotifier {
   PlaylistPlaybackController({
     required LocalAudioPlaybackController player,
+    HistoryController? history,
     Random? random,
   }) : _player = player,
+       _history = history,
        _random = random ?? Random() {
     player.addListener(_onPlayerStateChanged);
   }
 
   final LocalAudioPlaybackController _player;
+  final HistoryController? _history;
   final Random _random;
 
   PlaylistPlaybackState _state = const PlaylistPlaybackState.idle();
@@ -261,6 +267,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
 
     // A single-track play stops once the track finishes.
     if (_singleTrackMode) {
+      _recordCompletedSession(_state.currentTrack?.source.duration);
       _setState(_state.copyWith(status: PlaylistPlaybackStatus.completed));
       return;
     }
@@ -275,6 +282,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
       wrap: _state.repeatMode == PlaylistRepeatMode.repeatPlaylist,
     );
     if (nextIndex == null) {
+      _recordCompletedSession(_playlistDuration(playlist));
       _setState(
         _state.copyWith(
           status: PlaylistPlaybackStatus.completed,
@@ -354,6 +362,18 @@ class PlaylistPlaybackController extends ChangeNotifier {
       addedAt: DateTime.now(),
     );
   }
+
+  /// Logs a completed listening session. Skips sessions of unknown length so
+  /// they don't pollute the streak with zero-duration entries.
+  void _recordCompletedSession(Duration? duration) {
+    if (duration == null || duration <= Duration.zero) return;
+    unawaited(_history?.record(duration, mode: SessionMode.music));
+  }
+
+  Duration _playlistDuration(Playlist playlist) => playlist.tracks.fold(
+    Duration.zero,
+    (sum, track) => sum + (track.source.duration ?? Duration.zero),
+  );
 
   void _setState(PlaylistPlaybackState state) {
     _state = state;

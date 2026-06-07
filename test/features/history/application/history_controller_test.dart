@@ -8,6 +8,7 @@ void main() {
     id: 'id-${day.toIso8601String()}',
     completedAt: day,
     duration: const Duration(minutes: 10),
+    mode: SessionMode.timer,
   );
 
   group('currentStreak', () {
@@ -87,11 +88,30 @@ void main() {
       clock: () => DateTime(2026, 6, 6, 9),
     );
 
-    await controller.record(const Duration(minutes: 15));
+    await controller.record(
+      const Duration(minutes: 15),
+      mode: SessionMode.timer,
+    );
 
     expect(controller.totalCount, 1);
     expect(controller.currentStreak, 1);
     expect(repo.saved.single.duration, const Duration(minutes: 15));
+    expect(repo.saved.single.mode, SessionMode.timer);
+  });
+
+  test('record tags the session with the given mode', () async {
+    final repo = _FakeSessionRepository([]);
+    final controller = HistoryController(
+      repository: repo,
+      clock: () => DateTime(2026, 6, 6, 9),
+    );
+
+    await controller.record(
+      const Duration(minutes: 20),
+      mode: SessionMode.music,
+    );
+
+    expect(repo.saved.single.mode, SessionMode.music);
   });
 }
 
