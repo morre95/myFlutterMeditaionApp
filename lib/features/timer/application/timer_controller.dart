@@ -9,6 +9,7 @@ import '../domain/bell_selection.dart';
 import '../domain/timer_settings.dart';
 import '../infrastructure/shared_preferences_timer_settings_repository.dart';
 import 'timer_bell_player.dart';
+import 'wake_lock.dart';
 
 enum TimerSessionStatus { idle, running, paused, completed, error }
 
@@ -68,10 +69,12 @@ class TimerController extends ChangeNotifier {
     TimerSettingsRepository? repository,
     PlaybackSourceResolver? sourceResolver,
     HistoryController? history,
+    WakeLock? wakeLock,
   }) : _bellPlayer = bellPlayer ?? TimerBellPlayer(),
        _repository = repository,
        _sourceResolver = sourceResolver ?? const LocalPlaybackSourceResolver(),
-       _history = history {
+       _history = history,
+       _wakeLock = wakeLock ?? const WakelockPlusWakeLock() {
     final defaultBell = builtInBells.first;
     _state = TimerSessionState.initial(
       settings: TimerSettings(
@@ -88,6 +91,7 @@ class TimerController extends ChangeNotifier {
   final TimerSettingsRepository? _repository;
   final PlaybackSourceResolver _sourceResolver;
   final HistoryController? _history;
+  final WakeLock _wakeLock;
   Timer? _timer;
   late TimerSessionState _state;
 
@@ -168,17 +172,20 @@ class TimerController extends ChangeNotifier {
     _setState(
       _state.copyWith(status: TimerSessionStatus.running, clearError: true),
     );
+    _setWakeLock(true);
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
   }
 
   void pause() {
     if (!_state.isRunning) return;
     _timer?.cancel();
+    _setWakeLock(false);
     _setState(_state.copyWith(status: TimerSessionStatus.paused));
   }
 
   void reset() {
     _timer?.cancel();
+    _setWakeLock(false);
     final duration = _state.settings.duration;
     _setState(
       _state.copyWith(
@@ -200,6 +207,7 @@ class TimerController extends ChangeNotifier {
   }
 
   Future<void> _complete() async {
+    _setWakeLock(false);
     _setState(
       _state.copyWith(
         remaining: Duration.zero,
@@ -253,6 +261,23 @@ class TimerController extends ChangeNotifier {
     return null;
   }
 
+  /// Toggles the screen wakelock for the session lifecycle. Best-effort: a
+  /// wakelock failure must never interrupt or fail the meditation timer, so the
+  /// error is logged in debug builds and otherwise ignored.
+  void _setWakeLock(bool enable) {
+    unawaited(
+      (enable ? _wakeLock.enable() : _wakeLock.disable()).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        if (kDebugMode) {
+          debugPrint('Failed to ${enable ? 'enable' : 'disable'} wakelock: '
+              '$error\n$stackTrace');
+        }
+      }),
+    );
+  }
+
   void _setState(TimerSessionState nextState) {
     _state = nextState;
     notifyListeners();
@@ -261,6 +286,7 @@ class TimerController extends ChangeNotifier {
   @override
   void dispose() {
     _timer?.cancel();
+    _setWakeLock(false);
     _bellPlayer.dispose();
     super.dispose();
   }
