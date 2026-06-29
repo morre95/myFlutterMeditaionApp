@@ -73,7 +73,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     super.initState();
     _ownsPlaybackController = widget._playbackController == null;
     _picker = widget._picker ?? FilePickerLocalAudioPicker();
-    _durationProbe = widget._durationProbe ?? const AudioPlayersDurationProbe();
+    _durationProbe = widget._durationProbe ?? AudioPlayersDurationProbe();
   }
 
   @override
@@ -422,8 +422,8 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                           : (track) => _favorites!.toggleTrack(track.id),
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  const _ReadOnlyNotice(),
+                  //const SizedBox(height: 12),
+                  //const _ReadOnlyNotice(),
                 ],
               );
             },
