@@ -882,7 +882,7 @@ class _NameDialogState extends State<_NameDialog> {
 
 // ---------------------------------------------------------------------------
 
-class _ReadOnlyNotice extends StatelessWidget {
+/*class _ReadOnlyNotice extends StatelessWidget {
   const _ReadOnlyNotice();
 
   @override
@@ -901,4 +901,4 @@ class _ReadOnlyNotice extends StatelessWidget {
       ),
     );
   }
-}
+}*/

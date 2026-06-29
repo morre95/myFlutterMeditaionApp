@@ -61,7 +61,7 @@ class HomeScreen extends StatelessWidget {
                 icon: Icons.settings,
                 onTap: () => _open(context, const SettingsScreen()),
               ),
-              const SizedBox(height: 24),
+              /*const SizedBox(height: 24),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -73,7 +73,7 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-              ),
+              ),*/
             ],
           ),
         ),
