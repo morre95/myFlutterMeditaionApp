@@ -61,19 +61,6 @@ class HomeScreen extends StatelessWidget {
                 icon: Icons.settings,
                 onTap: () => _open(context, const SettingsScreen()),
               ),
-              /*const SizedBox(height: 24),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'Source audio files are treated as read-only. The app stores '
-                    'playlist metadata separately and never edits your music files.',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                    ),
-                  ),
-                ),
-              ),*/
             ],
           ),
         ),

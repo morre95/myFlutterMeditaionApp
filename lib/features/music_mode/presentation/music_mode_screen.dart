@@ -422,8 +422,6 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                           : (track) => _favorites!.toggleTrack(track.id),
                     ),
                   ],
-                  //const SizedBox(height: 12),
-                  //const _ReadOnlyNotice(),
                 ],
               );
             },
@@ -716,12 +714,9 @@ class _TrackListPanel extends StatelessWidget {
   final ValueChanged<PlaylistTrack>? onToggleFavorite;
 
   static String _trackSubtitle(AudioSource source) {
-    final kind = source.kind == AudioSourceKind.pCloud
-        ? 'pCloud'
-        : 'Local file';
     final duration = source.duration;
-    if (duration == null) return kind;
-    return '$kind · ${_formatDuration(duration)}';
+    if (duration == null) return '(?)';
+    return '(${_formatDuration(duration)})';
   }
 
   static String _formatDuration(Duration duration) {
@@ -881,24 +876,3 @@ class _NameDialogState extends State<_NameDialog> {
 }
 
 // ---------------------------------------------------------------------------
-
-/*class _ReadOnlyNotice extends StatelessWidget {
-  const _ReadOnlyNotice();
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Card(
-      color: colorScheme.secondaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Text(
-          'Files stay read-only. Playlists store only app metadata and local '
-          'file references.',
-          style: TextStyle(color: colorScheme.onSecondaryContainer),
-        ),
-      ),
-    );
-  }
-}*/
