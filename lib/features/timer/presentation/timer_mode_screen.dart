@@ -207,7 +207,7 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
         const SizedBox(width: 12),
         OutlinedButton(
           key: const Key('timer-reset-button'),
-          onPressed: _controller.reset,
+          onPressed: state.isRunning ? null : _controller.reset,
           child: const Text('Reset'),
         ),
       ],
