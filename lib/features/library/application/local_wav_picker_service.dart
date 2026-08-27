@@ -39,20 +39,13 @@ class PlatformFilePickerClient implements FilePickerClient {
 
   @override
   Future<List<LocalPickedFile>> pickAudioFiles() async {
-    final result = await FilePicker.pickFiles(
-      allowMultiple: true,
+    final files = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: _supportedExtensions,
       dialogTitle: 'Select audio files',
-      withData: false,
-      withReadStream: false,
     );
 
-    if (result == null) {
-      return const <LocalPickedFile>[];
-    }
-
-    return result.files
+    return files
         .where((file) => file.path != null && _isSupportedAudio(file))
         .map((file) => LocalPickedFile(name: file.name, path: file.path!))
         .toList(growable: false);

@@ -34,12 +34,16 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  file_picker: ^11.0.2
+  file_picker: ^12.1.1
   audioplayers: ^6.6.0
   shared_preferences: ^2.5.3
   http: ^1.2.2
-  flutter_secure_storage: ^9.2.2
-  wakelock_plus: ^1.5.2
+  # Held at 10.x deliberately: 11.0.0 removes the legacy Android ciphers, so a
+  # device upgrading straight from a 9.x build cannot decrypt its stored pCloud
+  # token. 10.x re-encrypts it in place (migrateOnAlgorithmChange defaults to
+  # true). Move to 11.x in a later release, once installs have run a 10.x build.
+  flutter_secure_storage: ^10.0.0
+  wakelock_plus: ^1.7.0
 
 dev_dependencies:
   flutter_test:

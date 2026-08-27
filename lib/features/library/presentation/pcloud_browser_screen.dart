@@ -15,6 +15,19 @@ class PCloudBrowserScreen extends StatefulWidget {
     required this.onAddFile,
   });
 
+  static const _rootCrumb = _FolderCrumb(
+    id: PCloudService.rootFolderId,
+    name: 'pCloud',
+  );
+
+  /// The folder path the user last browsed, kept for the lifetime of the app
+  /// run so reopening the browser lands where they left off.
+  static List<_FolderCrumb> _rememberedPath = const [_rootCrumb];
+
+  /// Clears the remembered path so each test starts at the pCloud root.
+  @visibleForTesting
+  static void resetRememberedPath() => _rememberedPath = const [_rootCrumb];
+
   final PCloudService service;
 
   /// Called when the user taps an audio file; returns true once it is added.
@@ -25,8 +38,8 @@ class PCloudBrowserScreen extends StatefulWidget {
 }
 
 class _PCloudBrowserScreenState extends State<PCloudBrowserScreen> {
-  final List<_FolderCrumb> _stack = [
-    const _FolderCrumb(id: PCloudService.rootFolderId, name: 'pCloud'),
+  late final List<_FolderCrumb> _stack = [
+    ...PCloudBrowserScreen._rememberedPath,
   ];
 
   PCloudListing? _listing;
@@ -59,12 +72,14 @@ class _PCloudBrowserScreenState extends State<PCloudBrowserScreen> {
 
   void _enterFolder(PCloudFolder folder) {
     setState(() => _stack.add(_FolderCrumb(id: folder.id, name: folder.name)));
+    PCloudBrowserScreen._rememberedPath = List.of(_stack);
     _openFolder(_stack.last);
   }
 
   Future<bool> _goBack() async {
     if (_stack.length <= 1) return true;
     setState(() => _stack.removeLast());
+    PCloudBrowserScreen._rememberedPath = List.of(_stack);
     await _openFolder(_stack.last);
     return false;
   }
@@ -78,7 +93,15 @@ class _PCloudBrowserScreenState extends State<PCloudBrowserScreen> {
         if (!didPop) _goBack();
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(_stack.last.name)),
+        appBar: AppBar(
+          title: Text(_stack.last.name),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
         extendBodyBehindAppBar: true,
         body: GradientBackground(
           child: SafeArea(
