@@ -99,11 +99,13 @@ class LocalAudioPlaybackController extends ChangeNotifier {
   LocalAudioPlaybackState _state = const LocalAudioPlaybackState.idle();
 
   bool _disposed = false;
+  int _playbackGeneration = 0;
 
   LocalAudioPlaybackState get state => _state;
 
   Future<void> play(QueueEntry entry) async {
     if (_disposed) return;
+    final generation = ++_playbackGeneration;
     _setState(
       LocalAudioPlaybackState(
         status: LocalPlaybackStatus.loading,
@@ -115,10 +117,17 @@ class LocalAudioPlaybackController extends ChangeNotifier {
 
     try {
       final media = await _resolver.resolve(entry.source);
-      if (_disposed) return;
+      if (!_isCurrent(generation)) {
+        return;
+      }
       await _player.load(media);
-      if (_disposed) return;
+      if (!_isCurrent(generation)) {
+        return;
+      }
       await _player.play();
+      if (!_isCurrent(generation)) {
+        return;
+      }
       _setState(
         LocalAudioPlaybackState(
           status: LocalPlaybackStatus.playing,
@@ -128,6 +137,9 @@ class LocalAudioPlaybackController extends ChangeNotifier {
         ),
       );
     } catch (_) {
+      if (!_isCurrent(generation)) {
+        return;
+      }
       _setState(
         LocalAudioPlaybackState(
           status: LocalPlaybackStatus.error,
@@ -146,7 +158,12 @@ class LocalAudioPlaybackController extends ChangeNotifier {
       return;
     }
 
+    final generation = _playbackGeneration;
     await _player.pause();
+    if (!_isCurrent(generation) ||
+        _state.status != LocalPlaybackStatus.playing) {
+      return;
+    }
     _setState(
       LocalAudioPlaybackState(
         status: LocalPlaybackStatus.paused,
@@ -163,7 +180,12 @@ class LocalAudioPlaybackController extends ChangeNotifier {
       return;
     }
 
+    final generation = _playbackGeneration;
     await _player.play();
+    if (!_isCurrent(generation) ||
+        _state.status != LocalPlaybackStatus.paused) {
+      return;
+    }
     _setState(_state.copyWith(status: LocalPlaybackStatus.playing));
   }
 
@@ -172,14 +194,22 @@ class LocalAudioPlaybackController extends ChangeNotifier {
     if (entry == null || _state.duration <= Duration.zero) return;
 
     final target = _clampPosition(position);
+    final generation = _playbackGeneration;
     await _player.seek(target);
+    if (!_isCurrent(generation)) {
+      return;
+    }
     _setState(_state.copyWith(position: target));
   }
 
   Future<void> stop() async {
-    await _player.stop();
+    _playbackGeneration++;
     _setState(const LocalAudioPlaybackState.idle());
+    await _player.stop();
   }
+
+  bool _isCurrent(int generation) =>
+      !_disposed && generation == _playbackGeneration;
 
   Duration _clampPosition(Duration position, {Duration? duration}) {
     final total = duration ?? _state.duration;
@@ -197,6 +227,7 @@ class LocalAudioPlaybackController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _playbackGeneration++;
     _completionSubscription.cancel();
     _positionSubscription.cancel();
     _durationSubscription.cancel();

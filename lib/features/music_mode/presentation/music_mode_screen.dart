@@ -66,6 +66,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   bool _dependenciesResolved = false;
 
   bool _isPicking = false;
+  int _playRequest = 0;
   String? _message;
 
   @override
@@ -275,8 +276,18 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   }
 
   Future<void> _playPlaylist(Playlist playlist) async {
+    final request = ++_playRequest;
     await _playlistPlaybackController.playPlaylist(playlist);
-    if (!mounted) return;
+    if (!mounted ||
+        request != _playRequest ||
+        ModalRoute.of(context)?.isCurrent == false) {
+      return;
+    }
+    final playback = _playlistPlaybackController.state;
+    if (playback.activePlaylist?.id != playlist.id ||
+        playback.status == PlaylistPlaybackStatus.idle) {
+      return;
+    }
     _openNowPlaying();
   }
 
@@ -295,12 +306,16 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
 
   Future<void> _resume() => _playlistPlaybackController.resume();
 
-  Future<void> _stop() => _playlistPlaybackController.stop();
+  Future<void> _stop() {
+    _playRequest++;
+    return _playlistPlaybackController.stop();
+  }
 
   Future<void> _seek(Duration position) => _playbackController.seek(position);
 
   /// Plays only the tapped track (no auto-advance to the rest of the playlist).
   Future<void> _playTrack(Playlist playlist, int index) async {
+    _playRequest++;
     await _playlistPlaybackController.playSingleTrack(playlist, index);
   }
 

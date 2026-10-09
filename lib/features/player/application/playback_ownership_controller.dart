@@ -19,6 +19,7 @@ class PlaybackOwnershipController {
     final finished = Completer<void>();
     _pending = finished.future;
     await previous;
+    Future<void>? pendingAction;
     try {
       if (!canRun()) return;
       if (!identical(_activeOwner, owner)) {
@@ -27,11 +28,12 @@ class PlaybackOwnershipController {
         _activeOwner = owner;
         _deactivate = deactivate;
       }
-      await action();
+      pendingAction = action();
     } finally {
-      // Return failures to this caller without poisoning later mode changes.
+      // Cloud resolution belongs to the owner, not the handoff lock.
       finished.complete();
     }
+    await pendingAction;
   }
 
   /// Disposed owners already stop their resources; drop their retained callback.

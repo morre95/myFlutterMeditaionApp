@@ -79,7 +79,7 @@ void main() {
       });
     },
   );
-  test('a queued ending bell cannot take ownership back from Music', () {
+  test('a delayed ending bell cannot take ownership back from Music', () {
     fakeAsync((async) {
       final ownership = PlaybackOwnershipController();
       final audio = _AudioPlayer();
@@ -99,7 +99,7 @@ void main() {
       timer.setDuration(const Duration(minutes: 1));
       timer.start();
       async.flushMicrotasks();
-      timer.previewBell(
+      timer.setBell(
         const BellSelection.custom(
           AudioSource(
             id: 'cloud-gong',
@@ -110,8 +110,13 @@ void main() {
         ),
       );
       async.flushMicrotasks();
-      music.playPlaylist(_playlist());
       async.elapse(const Duration(minutes: 1));
+      async.flushMicrotasks();
+      expect(timer.state.isCompleted, isTrue);
+      music.playPlaylist(_playlist());
+      async.flushMicrotasks();
+      expect(audio.isPlaying, isTrue);
+      expect(bell.isPlaying, isFalse);
       resolver.result.complete(const PlayableMedia.file('/gong.wav'));
       async.flushMicrotasks();
 
@@ -302,6 +307,170 @@ void main() {
       player.dispose();
     },
   );
+  test('silent Timer starts before an old cloud sound resolves', () {
+    fakeAsync((async) {
+      final ownership = PlaybackOwnershipController();
+      final audio = _AudioPlayer();
+      final resolver = _DeferredResolver();
+      final player = LocalAudioPlaybackController(
+        player: audio,
+        resolver: resolver,
+      );
+      final music = PlaylistPlaybackController(
+        player: player,
+        ownership: ownership,
+      );
+      final timer = TimerController(
+        bellPlayer: _BellPlayer(),
+        wakeLock: _WakeLock(),
+        ownership: ownership,
+      );
+      music.playPlaylist(_cloudPlaylist());
+      async.flushMicrotasks();
+      timer.start();
+      async.flushMicrotasks();
+      expect(timer.state.isRunning, isTrue);
+      expect(player.state.status, LocalPlaybackStatus.idle);
+      resolver.result.complete(
+        const PlayableMedia.url('https://example.com/old.wav'),
+      );
+      async.flushMicrotasks();
+      expect(audio.isPlaying, isFalse);
+      expect(music.state.status, PlaylistPlaybackStatus.idle);
+      timer.dispose();
+      music.dispose();
+      player.dispose();
+      async.flushMicrotasks();
+    });
+  });
+
+  test('Music starts before a previous custom bell resolves', () {
+    fakeAsync((async) {
+      final ownership = PlaybackOwnershipController();
+      final audio = _AudioPlayer();
+      final resolver = _DeferredResolver();
+      final player = LocalAudioPlaybackController(player: audio);
+      final music = PlaylistPlaybackController(
+        player: player,
+        ownership: ownership,
+      );
+      final bell = _BellPlayer();
+      final timer = TimerController(
+        bellPlayer: bell,
+        sourceResolver: resolver,
+        wakeLock: _WakeLock(),
+        ownership: ownership,
+      );
+      timer.previewBell(
+        BellSelection.custom(_cloudPlaylist().tracks.first.source),
+      );
+      async.flushMicrotasks();
+      music.playPlaylist(_playlist());
+      async.flushMicrotasks();
+      expect(audio.isPlaying, isTrue);
+      expect(bell.isPlaying, isFalse);
+      resolver.result.complete(
+        const PlayableMedia.url('https://example.com/old.wav'),
+      );
+      async.flushMicrotasks();
+      expect(audio.isPlaying, isTrue);
+      expect(bell.isPlaying, isFalse);
+      timer.dispose();
+      music.dispose();
+      player.dispose();
+      async.flushMicrotasks();
+    });
+  });
+
+  test('a new Music sound starts before its previous cloud sound resolves', () {
+    fakeAsync((async) {
+      final ownership = PlaybackOwnershipController();
+      final audio = _AudioPlayer();
+      final resolver = _DeferredResolver();
+      final player = LocalAudioPlaybackController(
+        player: audio,
+        resolver: resolver,
+      );
+      final music = PlaylistPlaybackController(
+        player: player,
+        ownership: ownership,
+      );
+      music.playPlaylist(_cloudPlaylist());
+      async.flushMicrotasks();
+      music.playPlaylist(_playlist());
+      async.flushMicrotasks();
+      expect(player.state.currentEntry?.source.id, 'rain');
+      expect(audio.isPlaying, isTrue);
+      resolver.result.complete(
+        const PlayableMedia.url('https://example.com/old.wav'),
+      );
+      async.flushMicrotasks();
+      expect(player.state.currentEntry?.source.id, 'rain');
+      expect(music.state.currentTrack?.id, 'rain');
+      expect(audio.isPlaying, isTrue);
+      music.dispose();
+      player.dispose();
+      async.flushMicrotasks();
+    });
+  });
+
+  test(
+    'a final completion while paused completes and records the session once',
+    () async {
+      final history = HistoryController(repository: _SessionRepository());
+      final audio = _AudioPlayer();
+      final player = LocalAudioPlaybackController(player: audio);
+      final music = PlaylistPlaybackController(
+        player: player,
+        history: history,
+        ownership: PlaybackOwnershipController(),
+      );
+      await music.playPlaylist(_playlist());
+      await music.pause();
+      audio.completions.add(true);
+      await Future<void>.delayed(Duration.zero);
+      expect(music.state.status, PlaylistPlaybackStatus.completed);
+      expect(history.totalCount, 1);
+      audio.completions.add(true);
+      await music.resume();
+      expect(music.state.status, PlaylistPlaybackStatus.completed);
+      expect(history.totalCount, 1);
+      music.dispose();
+      player.dispose();
+      history.dispose();
+    },
+  );
+  test(
+    'the latest Music selection survives an earlier queued Timer switch',
+    () {
+      fakeAsync((async) {
+        final ownership = PlaybackOwnershipController();
+        final audio = _AudioPlayer();
+        final player = LocalAudioPlaybackController(player: audio);
+        final music = PlaylistPlaybackController(
+          player: player,
+          ownership: ownership,
+        );
+        final timer = TimerController(
+          bellPlayer: _BellPlayer(),
+          wakeLock: _WakeLock(),
+          ownership: ownership,
+        );
+        music.playPlaylist(_playlist());
+        async.flushMicrotasks();
+        timer.start();
+        music.playPlaylist(_playlist());
+        async.flushMicrotasks();
+        expect(ownership.activeOwner, same(music));
+        expect(audio.isPlaying, isTrue);
+        expect(timer.state.status, TimerSessionStatus.idle);
+        timer.dispose();
+        music.dispose();
+        player.dispose();
+        async.flushMicrotasks();
+      });
+    },
+  );
 }
 
 class _AudioPlayer implements LocalAudioPlayer {
@@ -367,3 +536,20 @@ class _SessionRepository implements SessionRepository {
   @override
   Future<void> saveAll(List<MeditationSession> sessions) async {}
 }
+
+Playlist _cloudPlaylist() => Playlist(
+  id: 'cloud',
+  name: 'Cloud',
+  createdAt: DateTime(2026),
+  tracks: [
+    PlaylistTrack(
+      id: 'cloud',
+      source: const AudioSource(
+        id: 'cloud',
+        kind: AudioSourceKind.pCloud,
+        displayName: 'cloud.wav',
+        reference: '123',
+      ),
+    ),
+  ],
+);

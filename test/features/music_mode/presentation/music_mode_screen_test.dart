@@ -92,6 +92,61 @@ void main() {
     },
   );
 
+  testWidgets('stopping a pending start does not later open Now Playing', (
+    tester,
+  ) async {
+    final playlist = Playlist(
+      id: 'cloud',
+      name: 'Cloud',
+      createdAt: DateTime(2026),
+      tracks: [
+        PlaylistTrack(
+          id: 'cloud',
+          source: const AudioSource(
+            id: 'cloud',
+            kind: AudioSourceKind.pCloud,
+            displayName: 'cloud.wav',
+            reference: '123',
+          ),
+        ),
+      ],
+    );
+    final playlists = PlaylistController(
+      repository: _FakePlaylistRepository([playlist]),
+    );
+    await playlists.load();
+    final audio = _FakeLocalAudioPlayer();
+    final resolver = _DeferredSourceResolver();
+    final player = LocalAudioPlaybackController(
+      player: audio,
+      resolver: resolver,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicModeScreen(
+          playlistController: playlists,
+          playbackController: player,
+          picker: const _FakeLocalAudioFilePicker([]),
+          durationProbe: const _FakeDurationProbe(Duration(minutes: 3)),
+        ),
+      ),
+    );
+    await tester.tap(find.byTooltip('Play Cloud'));
+    await tester.pump();
+    await tester.tap(find.text('Stop'));
+    await tester.pump();
+    resolver.result.complete(
+      const PlayableMedia.url('https://example.com/old.wav'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Music Mode'), findsOneWidget);
+    expect(find.text('PLAYING FROM PLAYLIST'), findsNothing);
+    expect(player.state.status, LocalPlaybackStatus.idle);
+    await tester.pumpWidget(const SizedBox.shrink());
+    player.dispose();
+    playlists.dispose();
+  });
+
   testWidgets('shows empty state when no playlists exist', (tester) async {
     final repo = _FakePlaylistRepository([]);
     final controller = PlaylistController(repository: repo);
@@ -464,4 +519,10 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
     unawaited(_positionController.close());
     unawaited(_durationController.close());
   }
+}
+
+class _DeferredSourceResolver implements PlaybackSourceResolver {
+  final result = Completer<PlayableMedia>();
+  @override
+  Future<PlayableMedia> resolve(AudioSource source) => result.future;
 }

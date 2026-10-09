@@ -155,8 +155,13 @@ class TimerController extends ChangeNotifier {
   }
 
   /// Plays [bell] so the user can hear their selection before a session ends.
-  Future<void> previewBell(BellSelection bell) =>
-      _withOwnership(() => _playBell(bell));
+  Future<void> previewBell(BellSelection bell) {
+    final generation = ++_bellGeneration;
+    return _withOwnership(
+      () => _playBell(bell),
+      canRun: () => generation == _bellGeneration,
+    );
+  }
 
   void _persistSettings() {
     final repository = _repository;
