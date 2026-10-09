@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:my_meditation_app/app/app_dependencies.dart';
+import 'package:my_meditation_app/app/app_scope.dart';
+import 'package:my_meditation_app/features/home/presentation/home_screen.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_service.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_session_store.dart';
@@ -19,6 +23,130 @@ import 'package:my_meditation_app/features/playlists/domain/playlist_repository.
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 
 void main() {
+  testWidgets(
+    'music keeps its position and controls after leaving and returning',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final playlist = Playlist(
+        id: 'morning',
+        name: 'Morning',
+        tracks: [
+          PlaylistTrack(
+            id: 'rain',
+            source: const AudioSource(
+              id: 'rain',
+              kind: AudioSourceKind.localFile,
+              displayName: 'rain.wav',
+              reference: '/music/rain.wav',
+            ),
+          ),
+        ],
+        createdAt: DateTime(2026),
+      );
+      final playlists = PlaylistController(
+        repository: _FakePlaylistRepository([playlist]),
+      );
+      await playlists.load();
+      final audio = _FakeLocalAudioPlayer();
+      final playback = LocalAudioPlaybackController(player: audio);
+      final deps = AppDependencies(
+        playlistController: playlists,
+        playbackController: playback,
+        pcloudAuthController: PCloudAuthController(
+          store: _StubSessionStore(null),
+        ),
+      );
+      await tester.pumpWidget(
+        AppScope(
+          dependencies: deps,
+          child: const MaterialApp(home: HomeScreen()),
+        ),
+      );
+      await tester.tap(find.text('Music Mode'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Play Morning'));
+      await tester.pumpAndSettle();
+      audio.setDuration(const Duration(minutes: 3));
+      audio.setPosition(const Duration(seconds: 42));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Music Mode'));
+      await tester.pumpAndSettle();
+
+      expect(playback.state.status, LocalPlaybackStatus.playing);
+      expect(find.text('0:42'), findsOneWidget);
+      expect(audio.playCount, 1);
+      await tester.tap(find.text('Pause'));
+      await tester.pump();
+      expect(playback.state.status, LocalPlaybackStatus.paused);
+      await tester.tap(find.text('Resume'));
+      await tester.pump();
+      expect(playback.state.position, const Duration(seconds: 42));
+      expect(playback.state.status, LocalPlaybackStatus.playing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      deps.dispose();
+    },
+  );
+
+  testWidgets('stopping a pending start does not later open Now Playing', (
+    tester,
+  ) async {
+    final playlist = Playlist(
+      id: 'cloud',
+      name: 'Cloud',
+      createdAt: DateTime(2026),
+      tracks: [
+        PlaylistTrack(
+          id: 'cloud',
+          source: const AudioSource(
+            id: 'cloud',
+            kind: AudioSourceKind.pCloud,
+            displayName: 'cloud.wav',
+            reference: '123',
+          ),
+        ),
+      ],
+    );
+    final playlists = PlaylistController(
+      repository: _FakePlaylistRepository([playlist]),
+    );
+    await playlists.load();
+    final audio = _FakeLocalAudioPlayer();
+    final resolver = _DeferredSourceResolver();
+    final player = LocalAudioPlaybackController(
+      player: audio,
+      resolver: resolver,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicModeScreen(
+          playlistController: playlists,
+          playbackController: player,
+          picker: const _FakeLocalAudioFilePicker([]),
+          durationProbe: const _FakeDurationProbe(Duration(minutes: 3)),
+        ),
+      ),
+    );
+    await tester.tap(find.byTooltip('Play Cloud'));
+    await tester.pump();
+    await tester.tap(find.text('Stop'));
+    await tester.pump();
+    resolver.result.complete(
+      const PlayableMedia.url('https://example.com/old.wav'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Music Mode'), findsOneWidget);
+    expect(find.text('PLAYING FROM PLAYLIST'), findsNothing);
+    expect(player.state.status, LocalPlaybackStatus.idle);
+    await tester.pumpWidget(const SizedBox.shrink());
+    player.dispose();
+    playlists.dispose();
+  });
+
   testWidgets('shows empty state when no playlists exist', (tester) async {
     final repo = _FakePlaylistRepository([]);
     final controller = PlaylistController(repository: repo);
@@ -232,8 +360,12 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('Add files offers a pCloud source when connected', (tester) async {
-    final controller = PlaylistController(repository: _FakePlaylistRepository([]));
+  testWidgets('Add files offers a pCloud source when connected', (
+    tester,
+  ) async {
+    final controller = PlaylistController(
+      repository: _FakePlaylistRepository([]),
+    );
     await controller.load();
     await controller.create('Morning');
     final player = _FakeLocalAudioPlayer();
@@ -387,4 +519,10 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
     unawaited(_positionController.close());
     unawaited(_durationController.close());
   }
+}
+
+class _DeferredSourceResolver implements PlaybackSourceResolver {
+  final result = Completer<PlayableMedia>();
+  @override
+  Future<PlayableMedia> resolve(AudioSource source) => result.future;
 }

@@ -10,7 +10,9 @@ abstract interface class BellPlayer {
 
   Future<void> playMedia(PlayableMedia media);
 
-  void dispose();
+  Future<void> stop();
+
+  FutureOr<void> dispose();
 }
 
 class TimerBellPlayer implements BellPlayer {
@@ -38,7 +40,8 @@ class TimerBellPlayer implements BellPlayer {
   }
 
   @override
-  void dispose() {
-    _player.dispose();
-  }
+  Future<void> stop() => _player.stop();
+
+  @override
+  Future<void> dispose() => _player.dispose();
 }

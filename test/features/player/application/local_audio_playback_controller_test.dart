@@ -64,6 +64,102 @@ void main() {
 
     controller.dispose();
   });
+  test('disposing playback cancels a source still being resolved', () async {
+    final player = _FakeLocalAudioPlayer();
+    final resolver = _DeferredResolver();
+    final controller = LocalAudioPlaybackController(
+      player: player,
+      resolver: resolver,
+    );
+    final pending = controller.play(_entry('rain'));
+    controller.dispose();
+    resolver.result.complete(const PlayableMedia.file('/music/rain.wav'));
+    await pending;
+    await controller.stop();
+    expect(player.playCount, 0);
+    expect(player.disposed, isTrue);
+  });
+  test('Stop cancels a source still resolving before it can play', () async {
+    final player = _FakeLocalAudioPlayer();
+    final resolver = _DeferredResolver();
+    final controller = LocalAudioPlaybackController(
+      player: player,
+      resolver: resolver,
+    );
+    final pending = controller.play(_entry('rain'));
+    await controller.stop();
+    expect(controller.state.status, LocalPlaybackStatus.idle);
+    resolver.result.complete(const PlayableMedia.file('/music/rain.wav'));
+    await pending;
+    expect(player.playCount, 0);
+    expect(controller.state.status, LocalPlaybackStatus.idle);
+    controller.dispose();
+  });
+
+  test('Stop cancels an audio load that is still pending', () async {
+    final player = _FakeLocalAudioPlayer();
+    final load = player.loadResult = Completer<void>();
+    final controller = LocalAudioPlaybackController(player: player);
+    final pending = controller.play(_entry('rain'));
+    await Future<void>.delayed(Duration.zero);
+    final stopping = controller.stop();
+    expect(controller.state.status, LocalPlaybackStatus.idle);
+    load.complete();
+    await Future.wait([pending, stopping]);
+    expect(player.playCount, 0);
+    expect(controller.state.status, LocalPlaybackStatus.idle);
+    controller.dispose();
+  });
+
+  test('Stop discards an obsolete source resolution error', () async {
+    final player = _FakeLocalAudioPlayer();
+    final resolver = _DeferredResolver();
+    final controller = LocalAudioPlaybackController(
+      player: player,
+      resolver: resolver,
+    );
+    final pending = controller.play(_entry('rain'));
+    await controller.stop();
+    resolver.result.completeError(StateError('source unavailable'));
+    await pending;
+    expect(controller.state.status, LocalPlaybackStatus.idle);
+    expect(controller.state.errorMessage, isNull);
+    controller.dispose();
+  });
+  test('a late native load cannot replace the selected newer source', () async {
+    final player = _FakeLocalAudioPlayer();
+    final oldLoad = player.loadResult = Completer<void>();
+    final controller = LocalAudioPlaybackController(player: player);
+    final oldPlay = controller.play(_entry('rain'));
+    await Future<void>.delayed(Duration.zero);
+    player.loadResult = null;
+    final newPlay = controller.play(_entry('forest'));
+    await Future<void>.delayed(Duration.zero);
+    oldLoad.complete();
+    await Future.wait([oldPlay, newPlay]);
+    expect(player.loadedPath, '/music/forest.wav');
+    expect(controller.state.currentEntry?.source.id, 'forest');
+    controller.dispose();
+  });
+
+  test(
+    'disposal waits for an entered native load before stopping and releasing',
+    () async {
+      final player = _FakeLocalAudioPlayer();
+      final load = player.loadResult = Completer<void>();
+      final controller = LocalAudioPlaybackController(player: player);
+      final pending = controller.play(_entry('rain'));
+      await Future<void>.delayed(Duration.zero);
+      controller.dispose();
+      expect(player.disposed, isFalse);
+      load.complete();
+      await pending;
+      await Future<void>.delayed(Duration.zero);
+      expect(player.disposed, isTrue);
+      expect(player.loadedAfterDispose, isFalse);
+      expect(player.playCount, 0);
+    },
+  );
 }
 
 QueueEntry _entry(String id) {
@@ -87,12 +183,14 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   final StreamController<Duration> _durationController =
       StreamController<Duration>.broadcast();
 
+  Completer<void>? loadResult;
   String? loadedPath;
   int playCount = 0;
   int pauseCount = 0;
   int stopCount = 0;
   Duration? seekPosition;
   bool disposed = false;
+  bool loadedAfterDispose = false;
 
   @override
   Stream<bool> get completedStream => _completedController.stream;
@@ -105,6 +203,8 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
 
   @override
   Future<void> load(PlayableMedia media) async {
+    await loadResult?.future;
+    loadedAfterDispose = disposed;
     loadedPath = media.locator;
   }
 
@@ -147,4 +247,10 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
     unawaited(_positionController.close());
     unawaited(_durationController.close());
   }
+}
+
+class _DeferredResolver implements PlaybackSourceResolver {
+  final result = Completer<PlayableMedia>();
+  @override
+  Future<PlayableMedia> resolve(AudioSource source) => result.future;
 }

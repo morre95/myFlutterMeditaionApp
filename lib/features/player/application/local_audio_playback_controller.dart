@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../domain/queue_entry.dart';
 import 'playback_source_resolver.dart';
+import 'audio_command_queue.dart';
 
 enum LocalPlaybackStatus { idle, loading, playing, paused, completed, error }
 
@@ -63,7 +64,10 @@ class LocalAudioPlaybackController extends ChangeNotifier {
   }) : _player = player ?? AudioPlayersLocalPlayer(),
        _resolver = resolver ?? const LocalPlaybackSourceResolver() {
     _completionSubscription = _player.completedStream.listen((completed) {
-      if (completed && _state.currentEntry != null) {
+      if (completed &&
+          _state.currentEntry != null &&
+          (_state.status == LocalPlaybackStatus.playing ||
+              _state.status == LocalPlaybackStatus.paused)) {
         _setState(
           _state.copyWith(
             status: LocalPlaybackStatus.completed,
@@ -95,9 +99,16 @@ class LocalAudioPlaybackController extends ChangeNotifier {
 
   LocalAudioPlaybackState _state = const LocalAudioPlaybackState.idle();
 
+  bool _disposed = false;
+  final _playerCommands = AudioCommandQueue();
+  Future<void>? _disposal;
+  int _playbackGeneration = 0;
+
   LocalAudioPlaybackState get state => _state;
 
   Future<void> play(QueueEntry entry) async {
+    if (_disposed) return;
+    final generation = ++_playbackGeneration;
     _setState(
       LocalAudioPlaybackState(
         status: LocalPlaybackStatus.loading,
@@ -109,8 +120,23 @@ class LocalAudioPlaybackController extends ChangeNotifier {
 
     try {
       final media = await _resolver.resolve(entry.source);
-      await _player.load(media);
-      await _player.play();
+      if (!_isCurrent(generation)) {
+        return;
+      }
+      await _playerCommands.run(
+        () => _player.load(media),
+        canRun: () => _isCurrent(generation),
+      );
+      if (!_isCurrent(generation)) {
+        return;
+      }
+      await _playerCommands.run(
+        _player.play,
+        canRun: () => _isCurrent(generation),
+      );
+      if (!_isCurrent(generation)) {
+        return;
+      }
       _setState(
         LocalAudioPlaybackState(
           status: LocalPlaybackStatus.playing,
@@ -120,6 +146,9 @@ class LocalAudioPlaybackController extends ChangeNotifier {
         ),
       );
     } catch (_) {
+      if (!_isCurrent(generation)) {
+        return;
+      }
       _setState(
         LocalAudioPlaybackState(
           status: LocalPlaybackStatus.error,
@@ -138,7 +167,17 @@ class LocalAudioPlaybackController extends ChangeNotifier {
       return;
     }
 
-    await _player.pause();
+    final generation = _playbackGeneration;
+    await _playerCommands.run(
+      _player.pause,
+      canRun: () =>
+          _isCurrent(generation) &&
+          _state.status == LocalPlaybackStatus.playing,
+    );
+    if (!_isCurrent(generation) ||
+        _state.status != LocalPlaybackStatus.playing) {
+      return;
+    }
     _setState(
       LocalAudioPlaybackState(
         status: LocalPlaybackStatus.paused,
@@ -155,7 +194,16 @@ class LocalAudioPlaybackController extends ChangeNotifier {
       return;
     }
 
-    await _player.play();
+    final generation = _playbackGeneration;
+    await _playerCommands.run(
+      _player.play,
+      canRun: () =>
+          _isCurrent(generation) && _state.status == LocalPlaybackStatus.paused,
+    );
+    if (!_isCurrent(generation) ||
+        _state.status != LocalPlaybackStatus.paused) {
+      return;
+    }
     _setState(_state.copyWith(status: LocalPlaybackStatus.playing));
   }
 
@@ -164,14 +212,29 @@ class LocalAudioPlaybackController extends ChangeNotifier {
     if (entry == null || _state.duration <= Duration.zero) return;
 
     final target = _clampPosition(position);
-    await _player.seek(target);
+    final generation = _playbackGeneration;
+    await _playerCommands.run(
+      () => _player.seek(target),
+      canRun: () => _isCurrent(generation),
+    );
+    if (!_isCurrent(generation)) {
+      return;
+    }
     _setState(_state.copyWith(position: target));
   }
 
   Future<void> stop() async {
-    await _player.stop();
+    if (_disposed) {
+      await _disposal;
+      return;
+    }
+    _playbackGeneration++;
     _setState(const LocalAudioPlaybackState.idle());
+    await _playerCommands.run(_player.stop);
   }
+
+  bool _isCurrent(int generation) =>
+      !_disposed && generation == _playbackGeneration;
 
   Duration _clampPosition(Duration position, {Duration? duration}) {
     final total = duration ?? _state.duration;
@@ -181,16 +244,32 @@ class LocalAudioPlaybackController extends ChangeNotifier {
   }
 
   void _setState(LocalAudioPlaybackState state) {
+    if (_disposed) return;
     _state = state;
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _playbackGeneration++;
     _completionSubscription.cancel();
     _positionSubscription.cancel();
     _durationSubscription.cancel();
-    _player.dispose();
+    _disposal = _playerCommands.disposePlayer(
+      stop: _player.stop,
+      dispose: _player.dispose,
+    );
+    unawaited(
+      _disposal!.catchError((Object error, StackTrace stackTrace) {
+        if (kDebugMode) {
+          debugPrint(
+            'Music player disposal failed (${error.runtimeType}); '
+            'native silence could not be confirmed.',
+          );
+        }
+      }),
+    );
     super.dispose();
   }
 }
@@ -212,7 +291,7 @@ abstract class LocalAudioPlayer {
 
   Future<void> stop();
 
-  void dispose();
+  FutureOr<void> dispose();
 }
 
 class AudioPlayersLocalPlayer implements LocalAudioPlayer {
@@ -262,7 +341,5 @@ class AudioPlayersLocalPlayer implements LocalAudioPlayer {
   }
 
   @override
-  void dispose() {
-    unawaited(_player.dispose());
-  }
+  Future<void> dispose() => _player.dispose();
 }
