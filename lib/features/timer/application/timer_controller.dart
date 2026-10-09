@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../history/application/history_controller.dart';
 import '../../history/domain/meditation_session.dart';
 import '../../player/application/playback_source_resolver.dart';
+import '../../player/application/audio_command_queue.dart';
 import '../../player/application/playback_ownership_controller.dart';
 import '../domain/bell_selection.dart';
 import '../domain/timer_settings.dart';
@@ -97,7 +98,10 @@ class TimerController extends ChangeNotifier {
   final WakeLock _wakeLock;
   final PlaybackOwnershipController? _ownership;
   bool _disposed = false;
+  final _bellCommands = AudioCommandQueue();
+  Future<void>? _disposal;
   int _bellGeneration = 0;
+  int _bellRequestGeneration = 0;
   Timer? _timer;
   late TimerSessionState _state;
 
@@ -156,10 +160,10 @@ class TimerController extends ChangeNotifier {
 
   /// Plays [bell] so the user can hear their selection before a session ends.
   Future<void> previewBell(BellSelection bell) {
-    final generation = ++_bellGeneration;
+    final request = ++_bellRequestGeneration;
     return _withOwnership(
       () => _playBell(bell),
-      canRun: () => generation == _bellGeneration,
+      canRun: () => request == _bellRequestGeneration,
     );
   }
 
@@ -198,6 +202,11 @@ class TimerController extends ChangeNotifier {
   }
 
   void reset() {
+    _bellRequestGeneration++;
+    _resetSession();
+  }
+
+  void _resetSession() {
     _bellGeneration++;
     _timer?.cancel();
     _setWakeLock(false);
@@ -245,12 +254,15 @@ class TimerController extends ChangeNotifier {
   /// Plays a bell selection, surfacing a playback failure as an error message
   /// in state. Shared by end-of-session playback and dropdown previews.
   Future<void> _playBell(BellSelection bell) async {
-    final generation = _bellGeneration;
+    final generation = ++_bellGeneration;
     try {
       if (bell.isCustom) {
         final media = await _sourceResolver.resolve(bell.source!);
         if (_disposed || generation != _bellGeneration) return;
-        await _bellPlayer.playMedia(media);
+        await _bellCommands.run(
+          () => _bellPlayer.playMedia(media),
+          canRun: () => !_disposed && generation == _bellGeneration,
+        );
         return;
       }
 
@@ -264,7 +276,10 @@ class TimerController extends ChangeNotifier {
         );
         return;
       }
-      await _bellPlayer.playAsset(builtIn.assetPath);
+      await _bellCommands.run(
+        () => _bellPlayer.playAsset(builtIn.assetPath),
+        canRun: () => !_disposed && generation == _bellGeneration,
+      );
     } catch (_) {
       if (_disposed || generation != _bellGeneration) return;
       _setState(
@@ -314,8 +329,12 @@ class TimerController extends ChangeNotifier {
     return ownership.run(
       owner: this,
       deactivate: () async {
-        reset();
-        await _bellPlayer.stop();
+        if (_disposed) {
+          await _disposal;
+          return;
+        }
+        _resetSession();
+        await _bellCommands.run(_bellPlayer.stop);
       },
       action: action,
       canRun: isCurrent,
@@ -332,10 +351,10 @@ class TimerController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _bellGeneration++;
-    _ownership?.forget(this);
     _timer?.cancel();
     _setWakeLock(false);
-    _bellPlayer.dispose();
+    _disposal = _bellCommands.disposePlayer(_bellPlayer.dispose);
+    unawaited(_disposal!.then((_) => _ownership?.forget(this)));
     super.dispose();
   }
 }
