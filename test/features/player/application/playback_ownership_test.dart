@@ -623,6 +623,76 @@ void main() {
       });
     },
   );
+  test(
+    'Timer waits for an entered native source load to stop before taking ownership',
+    () {
+      fakeAsync((async) {
+        final ownership = PlaybackOwnershipController();
+        final audio = _AudioPlayer();
+        audio.loadReady = Completer<void>();
+        final player = LocalAudioPlaybackController(player: audio);
+        final music = PlaylistPlaybackController(
+          player: player,
+          ownership: ownership,
+        );
+        final timer = TimerController(
+          bellPlayer: _BellPlayer(),
+          wakeLock: _WakeLock(),
+          ownership: ownership,
+        );
+        music.playPlaylist(_playlist());
+        async.flushMicrotasks();
+        timer.start();
+        async.flushMicrotasks();
+        expect(timer.state.isRunning, isFalse);
+        audio.loadReady!.complete();
+        async.flushMicrotasks();
+        expect(timer.state.isRunning, isTrue);
+        expect(audio.isPlaying, isFalse);
+        expect(ownership.activeOwner, same(timer));
+        timer.dispose();
+        music.dispose();
+        player.dispose();
+        async.flushMicrotasks();
+      });
+    },
+  );
+
+  test(
+    'disposing a sounding Timer bell waits for native stop before Music starts',
+    () {
+      fakeAsync((async) {
+        final ownership = PlaybackOwnershipController();
+        final audio = _AudioPlayer();
+        final player = LocalAudioPlaybackController(player: audio);
+        final music = PlaylistPlaybackController(
+          player: player,
+          ownership: ownership,
+        );
+        final bell = _PendingStopBellPlayer();
+        final timer = TimerController(
+          bellPlayer: bell,
+          wakeLock: _WakeLock(),
+          ownership: ownership,
+        );
+        timer.previewBell(const BellSelection.builtIn('bell_2'));
+        async.flushMicrotasks();
+        expect(bell.isPlaying, isTrue);
+        timer.dispose();
+        music.playPlaylist(_playlist());
+        async.flushMicrotasks();
+        expect(audio.isPlaying, isFalse);
+        bell.stopped.complete();
+        async.flushMicrotasks();
+        expect(audio.isPlaying, isTrue);
+        expect(bell.isPlaying, isFalse);
+        expect(ownership.activeOwner, same(music));
+        music.dispose();
+        player.dispose();
+        async.flushMicrotasks();
+      });
+    },
+  );
 }
 
 class _AudioPlayer implements LocalAudioPlayer {
@@ -631,6 +701,7 @@ class _AudioPlayer implements LocalAudioPlayer {
   final durations = StreamController<Duration>.broadcast();
   bool isPlaying = false;
   Completer<void>? playReady;
+  Completer<void>? loadReady;
   @override
   Stream<bool> get completedStream => completions.stream;
   @override
@@ -638,7 +709,10 @@ class _AudioPlayer implements LocalAudioPlayer {
   @override
   Stream<Duration> get durationStream => durations.stream;
   @override
-  Future<void> load(PlayableMedia media) async {}
+  Future<void> load(PlayableMedia media) async {
+    await loadReady?.future;
+  }
+
   @override
   Future<void> play() async {
     await playReady?.future;
@@ -731,4 +805,16 @@ class _PendingBellPlayer implements BellPlayer {
   Future<void> stop() async => isPlaying = false;
   @override
   void dispose() => isPlaying = false;
+}
+
+class _PendingStopBellPlayer extends _BellPlayer {
+  final stopped = Completer<void>();
+  @override
+  Future<void> stop() async {
+    await stopped.future;
+    isPlaying = false;
+  }
+
+  @override
+  void dispose() => unawaited(stop());
 }

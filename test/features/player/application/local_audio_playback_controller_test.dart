@@ -75,6 +75,7 @@ void main() {
     controller.dispose();
     resolver.result.complete(const PlayableMedia.file('/music/rain.wav'));
     await pending;
+    await controller.stop();
     expect(player.playCount, 0);
     expect(player.disposed, isTrue);
   });
@@ -101,10 +102,10 @@ void main() {
     final controller = LocalAudioPlaybackController(player: player);
     final pending = controller.play(_entry('rain'));
     await Future<void>.delayed(Duration.zero);
-    await controller.stop();
+    final stopping = controller.stop();
     expect(controller.state.status, LocalPlaybackStatus.idle);
     load.complete();
-    await pending;
+    await Future.wait([pending, stopping]);
     expect(player.playCount, 0);
     expect(controller.state.status, LocalPlaybackStatus.idle);
     controller.dispose();
@@ -125,6 +126,40 @@ void main() {
     expect(controller.state.errorMessage, isNull);
     controller.dispose();
   });
+  test('a late native load cannot replace the selected newer source', () async {
+    final player = _FakeLocalAudioPlayer();
+    final oldLoad = player.loadResult = Completer<void>();
+    final controller = LocalAudioPlaybackController(player: player);
+    final oldPlay = controller.play(_entry('rain'));
+    await Future<void>.delayed(Duration.zero);
+    player.loadResult = null;
+    final newPlay = controller.play(_entry('forest'));
+    await Future<void>.delayed(Duration.zero);
+    oldLoad.complete();
+    await Future.wait([oldPlay, newPlay]);
+    expect(player.loadedPath, '/music/forest.wav');
+    expect(controller.state.currentEntry?.source.id, 'forest');
+    controller.dispose();
+  });
+
+  test(
+    'disposal waits for an entered native load before stopping and releasing',
+    () async {
+      final player = _FakeLocalAudioPlayer();
+      final load = player.loadResult = Completer<void>();
+      final controller = LocalAudioPlaybackController(player: player);
+      final pending = controller.play(_entry('rain'));
+      await Future<void>.delayed(Duration.zero);
+      controller.dispose();
+      expect(player.disposed, isFalse);
+      load.complete();
+      await pending;
+      await Future<void>.delayed(Duration.zero);
+      expect(player.disposed, isTrue);
+      expect(player.loadedAfterDispose, isFalse);
+      expect(player.playCount, 0);
+    },
+  );
 }
 
 QueueEntry _entry(String id) {
@@ -155,6 +190,7 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
   int stopCount = 0;
   Duration? seekPosition;
   bool disposed = false;
+  bool loadedAfterDispose = false;
 
   @override
   Stream<bool> get completedStream => _completedController.stream;
@@ -167,8 +203,9 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
 
   @override
   Future<void> load(PlayableMedia media) async {
-    loadedPath = media.locator;
     await loadResult?.future;
+    loadedAfterDispose = disposed;
+    loadedPath = media.locator;
   }
 
   @override

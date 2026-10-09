@@ -4,7 +4,6 @@ import 'dart:async';
 /// Source discovery stays outside this queue so it can be superseded promptly.
 class AudioCommandQueue {
   Future<void> _pending = Future<void>.value();
-  int _commandCount = 0;
 
   Future<void> run(
     Future<void> Function() action, {
@@ -13,21 +12,20 @@ class AudioCommandQueue {
     final previous = _pending;
     final finished = Completer<void>();
     _pending = finished.future;
-    _commandCount++;
     await previous;
     try {
       if (canRun?.call() ?? true) await action();
     } finally {
-      _commandCount--;
       finished.complete();
     }
   }
 
-  Future<void> disposePlayer(void Function() dispose) {
-    if (_commandCount == 0) {
-      dispose();
-      return Future<void>.value();
-    }
-    return run(() async => dispose());
-  }
+  Future<void> disposePlayer({
+    required Future<void> Function() stop,
+    required void Function() dispose,
+  }) => run(() async {
+    // Adapter disposal may discard its native Future; await silence first.
+    await stop();
+    dispose();
+  });
 }

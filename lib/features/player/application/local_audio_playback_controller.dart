@@ -123,7 +123,10 @@ class LocalAudioPlaybackController extends ChangeNotifier {
       if (!_isCurrent(generation)) {
         return;
       }
-      await _player.load(media);
+      await _playerCommands.run(
+        () => _player.load(media),
+        canRun: () => _isCurrent(generation),
+      );
       if (!_isCurrent(generation)) {
         return;
       }
@@ -253,7 +256,10 @@ class LocalAudioPlaybackController extends ChangeNotifier {
     _completionSubscription.cancel();
     _positionSubscription.cancel();
     _durationSubscription.cancel();
-    _disposal = _playerCommands.disposePlayer(_player.dispose);
+    _disposal = _playerCommands.disposePlayer(
+      stop: _player.stop,
+      dispose: _player.dispose,
+    );
     super.dispose();
   }
 }

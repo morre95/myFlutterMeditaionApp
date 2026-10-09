@@ -353,7 +353,10 @@ class TimerController extends ChangeNotifier {
     _bellGeneration++;
     _timer?.cancel();
     _setWakeLock(false);
-    _disposal = _bellCommands.disposePlayer(_bellPlayer.dispose);
+    _disposal = _bellCommands.disposePlayer(
+      stop: _bellPlayer.stop,
+      dispose: _bellPlayer.dispose,
+    );
     unawaited(_disposal!.then((_) => _ownership?.forget(this)));
     super.dispose();
   }
