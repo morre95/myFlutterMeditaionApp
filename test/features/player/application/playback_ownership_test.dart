@@ -693,6 +693,76 @@ void main() {
       });
     },
   );
+  test('failed Timer Stop still releases audio before Music can play', () {
+    fakeAsync((async) {
+      final ownership = PlaybackOwnershipController();
+      final audio = _AudioPlayer();
+      final player = LocalAudioPlaybackController(player: audio);
+      final music = PlaylistPlaybackController(
+        player: player,
+        ownership: ownership,
+      );
+      final bell = _FailingStopBellPlayer();
+      final timer = TimerController(
+        bellPlayer: bell,
+        wakeLock: _WakeLock(),
+        ownership: ownership,
+      );
+      timer.previewBell(const BellSelection.builtIn('bell_2'));
+      async.flushMicrotasks();
+      timer.dispose();
+      async.flushMicrotasks();
+      expect(bell.disposalAttempted, isTrue);
+      music.playPlaylist(_playlist());
+      async.flushMicrotasks();
+      expect(audio.isPlaying, isFalse);
+      expect(ownership.activeOwner, same(timer));
+      bell.released.complete();
+      async.flushMicrotasks();
+      expect(bell.isPlaying, isFalse);
+      expect(audio.isPlaying, isTrue);
+      expect(ownership.activeOwner, same(music));
+      music.dispose();
+      player.dispose();
+      async.flushMicrotasks();
+    });
+  });
+  test(
+    'failed Timer disposal retains ownership and rejects competing Music',
+    () {
+      fakeAsync((async) {
+        final ownership = PlaybackOwnershipController();
+        final audio = _AudioPlayer();
+        final player = LocalAudioPlaybackController(player: audio);
+        final music = PlaylistPlaybackController(
+          player: player,
+          ownership: ownership,
+        );
+        final bell = _FailingStopBellPlayer(failDisposal: true);
+        final timer = TimerController(
+          bellPlayer: bell,
+          wakeLock: _WakeLock(),
+          ownership: ownership,
+        );
+        timer.previewBell(const BellSelection.builtIn('bell_2'));
+        async.flushMicrotasks();
+        timer.dispose();
+        bell.released.complete();
+        async.flushMicrotasks();
+        Object? handoffError;
+        music.playPlaylist(_playlist()).catchError((Object error) {
+          handoffError = error;
+        });
+        async.flushMicrotasks();
+        expect(handoffError, isA<StateError>());
+        expect(ownership.activeOwner, same(timer));
+        expect(audio.isPlaying, isFalse);
+        music.dispose();
+        player.dispose();
+        async.flushMicrotasks();
+      });
+    },
+  );
 }
 
 class _AudioPlayer implements LocalAudioPlayer {
@@ -817,4 +887,21 @@ class _PendingStopBellPlayer extends _BellPlayer {
 
   @override
   void dispose() => unawaited(stop());
+}
+
+class _FailingStopBellPlayer extends _BellPlayer {
+  _FailingStopBellPlayer({this.failDisposal = false});
+  final bool failDisposal;
+  final released = Completer<void>();
+  bool disposalAttempted = false;
+  @override
+  Future<void> stop() async => throw StateError('native Stop failed');
+
+  @override
+  Future<void> dispose() async {
+    disposalAttempted = true;
+    await released.future;
+    if (failDisposal) throw StateError('native disposal failed');
+    isPlaying = false;
+  }
 }

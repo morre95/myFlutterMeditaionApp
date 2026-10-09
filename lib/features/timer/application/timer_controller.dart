@@ -357,7 +357,19 @@ class TimerController extends ChangeNotifier {
       stop: _bellPlayer.stop,
       dispose: _bellPlayer.dispose,
     );
-    unawaited(_disposal!.then((_) => _ownership?.forget(this)));
+    unawaited(
+      _disposal!.then<void>(
+        (_) => _ownership?.forget(this),
+        onError: (Object error, StackTrace stackTrace) {
+          if (kDebugMode) {
+            debugPrint(
+              'Timer bell disposal failed (${error.runtimeType}); '
+              'playback ownership retained.',
+            );
+          }
+        },
+      ),
+    );
     super.dispose();
   }
 }

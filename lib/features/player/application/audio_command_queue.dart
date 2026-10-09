@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 /// Native mutation sequences must settle before a later Stop can finish.
 /// Source discovery stays outside this queue so it can be superseded promptly.
 class AudioCommandQueue {
@@ -22,10 +24,20 @@ class AudioCommandQueue {
 
   Future<void> disposePlayer({
     required Future<void> Function() stop,
-    required void Function() dispose,
+    required FutureOr<void> Function() dispose,
   }) => run(() async {
-    // Adapter disposal may discard its native Future; await silence first.
-    await stop();
-    dispose();
+    try {
+      await stop();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint(
+          'Audio Stop failed during teardown (${error.runtimeType}); '
+          'attempting native disposal.',
+        );
+      }
+    } finally {
+      // Successful native disposal establishes silence even if Stop failed.
+      await dispose();
+    }
   });
 }

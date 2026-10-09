@@ -260,6 +260,16 @@ class LocalAudioPlaybackController extends ChangeNotifier {
       stop: _player.stop,
       dispose: _player.dispose,
     );
+    unawaited(
+      _disposal!.catchError((Object error, StackTrace stackTrace) {
+        if (kDebugMode) {
+          debugPrint(
+            'Music player disposal failed (${error.runtimeType}); '
+            'native silence could not be confirmed.',
+          );
+        }
+      }),
+    );
     super.dispose();
   }
 }
@@ -281,7 +291,7 @@ abstract class LocalAudioPlayer {
 
   Future<void> stop();
 
-  void dispose();
+  FutureOr<void> dispose();
 }
 
 class AudioPlayersLocalPlayer implements LocalAudioPlayer {
@@ -331,7 +341,5 @@ class AudioPlayersLocalPlayer implements LocalAudioPlayer {
   }
 
   @override
-  void dispose() {
-    unawaited(_player.dispose());
-  }
+  Future<void> dispose() => _player.dispose();
 }
