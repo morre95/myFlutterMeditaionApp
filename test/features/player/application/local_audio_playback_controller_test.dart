@@ -64,6 +64,20 @@ void main() {
 
     controller.dispose();
   });
+  test('disposing playback cancels a source still being resolved', () async {
+    final player = _FakeLocalAudioPlayer();
+    final resolver = _DeferredResolver();
+    final controller = LocalAudioPlaybackController(
+      player: player,
+      resolver: resolver,
+    );
+    final pending = controller.play(_entry('rain'));
+    controller.dispose();
+    resolver.result.complete(const PlayableMedia.file('/music/rain.wav'));
+    await pending;
+    expect(player.playCount, 0);
+    expect(player.disposed, isTrue);
+  });
 }
 
 QueueEntry _entry(String id) {
@@ -147,4 +161,10 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
     unawaited(_positionController.close());
     unawaited(_durationController.close());
   }
+}
+
+class _DeferredResolver implements PlaybackSourceResolver {
+  final result = Completer<PlayableMedia>();
+  @override
+  Future<PlayableMedia> resolve(AudioSource source) => result.future;
 }

@@ -63,7 +63,10 @@ class LocalAudioPlaybackController extends ChangeNotifier {
   }) : _player = player ?? AudioPlayersLocalPlayer(),
        _resolver = resolver ?? const LocalPlaybackSourceResolver() {
     _completionSubscription = _player.completedStream.listen((completed) {
-      if (completed && _state.currentEntry != null) {
+      if (completed &&
+          _state.currentEntry != null &&
+          (_state.status == LocalPlaybackStatus.playing ||
+              _state.status == LocalPlaybackStatus.paused)) {
         _setState(
           _state.copyWith(
             status: LocalPlaybackStatus.completed,
@@ -95,9 +98,12 @@ class LocalAudioPlaybackController extends ChangeNotifier {
 
   LocalAudioPlaybackState _state = const LocalAudioPlaybackState.idle();
 
+  bool _disposed = false;
+
   LocalAudioPlaybackState get state => _state;
 
   Future<void> play(QueueEntry entry) async {
+    if (_disposed) return;
     _setState(
       LocalAudioPlaybackState(
         status: LocalPlaybackStatus.loading,
@@ -109,7 +115,9 @@ class LocalAudioPlaybackController extends ChangeNotifier {
 
     try {
       final media = await _resolver.resolve(entry.source);
+      if (_disposed) return;
       await _player.load(media);
+      if (_disposed) return;
       await _player.play();
       _setState(
         LocalAudioPlaybackState(
@@ -181,12 +189,14 @@ class LocalAudioPlaybackController extends ChangeNotifier {
   }
 
   void _setState(LocalAudioPlaybackState state) {
+    if (_disposed) return;
     _state = state;
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _completionSubscription.cancel();
     _positionSubscription.cancel();
     _durationSubscription.cancel();

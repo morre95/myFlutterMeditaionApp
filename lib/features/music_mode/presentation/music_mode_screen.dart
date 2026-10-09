@@ -62,7 +62,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   PCloudAuthController? _pcloudAuth;
   PCloudService? _pcloudService;
 
-  late final bool _ownsPlaybackController;
+  late final bool _ownsPlaylistPlaybackController;
   bool _dependenciesResolved = false;
 
   bool _isPicking = false;
@@ -71,7 +71,6 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   @override
   void initState() {
     super.initState();
-    _ownsPlaybackController = widget._playbackController == null;
     _picker = widget._picker ?? FilePickerLocalAudioPicker();
     _durationProbe = widget._durationProbe ?? AudioPlayersDurationProbe();
   }
@@ -91,22 +90,23 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     _playlistController =
         widget._playlistController ?? scope!.playlistController;
     _playbackController =
-        widget._playbackController ??
-        LocalAudioPlaybackController(resolver: scope!.playbackSourceResolver);
+        widget._playbackController ?? scope!.playbackController;
     _favorites = widget._favoritesController ?? scope?.favoritesController;
     _pcloudAuth = widget._pcloudAuthController ?? scope?.pcloudAuthController;
     _pcloudService = widget._pcloudService ?? scope?.pcloudService;
-    _playlistPlaybackController = PlaylistPlaybackController(
-      player: _playbackController,
-      history: widget._historyController ?? scope?.historyController,
-    );
+    _ownsPlaylistPlaybackController = widget._playbackController != null;
+    _playlistPlaybackController = _ownsPlaylistPlaybackController
+        ? PlaylistPlaybackController(
+            player: _playbackController,
+            history: widget._historyController ?? scope?.historyController,
+          )
+        : scope!.playlistPlaybackController;
   }
 
   @override
   void dispose() {
-    _playlistPlaybackController.dispose();
-    if (_ownsPlaybackController) {
-      _playbackController.dispose();
+    if (_ownsPlaylistPlaybackController) {
+      _playlistPlaybackController.dispose();
     }
     super.dispose();
   }

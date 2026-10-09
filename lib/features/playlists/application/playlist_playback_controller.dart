@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../../history/application/history_controller.dart';
 import '../../history/domain/meditation_session.dart';
 import '../../player/application/local_audio_playback_controller.dart';
+import '../../player/application/playback_ownership_controller.dart';
 import '../../player/domain/queue_entry.dart';
 import '../domain/playlist.dart';
 
@@ -84,15 +85,21 @@ class PlaylistPlaybackController extends ChangeNotifier {
     required LocalAudioPlaybackController player,
     HistoryController? history,
     Random? random,
+    PlaybackOwnershipController? ownership,
   }) : _player = player,
        _history = history,
-       _random = random ?? Random() {
+       _random = random ?? Random(),
+       _ownership = ownership {
     player.addListener(_onPlayerStateChanged);
   }
 
   final LocalAudioPlaybackController _player;
   final HistoryController? _history;
   final Random _random;
+  final PlaybackOwnershipController? _ownership;
+  bool _disposed = false;
+  LocalPlaybackStatus? _previousPlayerStatus;
+  int _playbackGeneration = 0;
 
   PlaylistPlaybackState _state = const PlaylistPlaybackState.idle();
 
@@ -106,44 +113,45 @@ class PlaylistPlaybackController extends ChangeNotifier {
 
   LocalAudioPlaybackState get trackState => _player.state;
 
-  Future<void> playPlaylist(Playlist playlist, {int startIndex = 0}) async {
-    if (playlist.tracks.isEmpty) return;
-
-    await _player.stop();
-    _singleTrackMode = false;
-    if (_state.shuffleEnabled) {
-      _shuffledOrder = _buildShuffledOrder(playlist.tracks.length, startIndex);
-    } else {
-      _shuffledOrder = null;
-    }
-    _setState(
-      _state.copyWith(
-        status: PlaylistPlaybackStatus.playing,
-        activePlaylist: playlist,
-        currentTrackIndex: startIndex,
-        clearError: true,
-      ),
-    );
-    await _playCurrentTrack();
-  }
+  Future<void> playPlaylist(Playlist playlist, {int startIndex = 0}) =>
+      _withOwnership(() async {
+        await _player.stop();
+        _singleTrackMode = false;
+        if (_state.shuffleEnabled) {
+          _shuffledOrder = _buildShuffledOrder(
+            playlist.tracks.length,
+            startIndex,
+          );
+        } else {
+          _shuffledOrder = null;
+        }
+        _setState(
+          _state.copyWith(
+            status: PlaylistPlaybackStatus.playing,
+            activePlaylist: playlist,
+            currentTrackIndex: startIndex,
+            clearError: true,
+          ),
+        );
+        await _playCurrentTrack();
+      }, canRun: () => playlist.tracks.isNotEmpty);
 
   /// Plays a single track and stops when it finishes (no auto-advance).
-  Future<void> playSingleTrack(Playlist playlist, int index) async {
-    if (index < 0 || index >= playlist.tracks.length) return;
-
-    await _player.stop();
-    _shuffledOrder = null;
-    _singleTrackMode = true;
-    _setState(
-      _state.copyWith(
-        status: PlaylistPlaybackStatus.playing,
-        activePlaylist: playlist,
-        currentTrackIndex: index,
-        clearError: true,
-      ),
-    );
-    await _playCurrentTrack();
-  }
+  Future<void> playSingleTrack(Playlist playlist, int index) =>
+      _withOwnership(() async {
+        await _player.stop();
+        _shuffledOrder = null;
+        _singleTrackMode = true;
+        _setState(
+          _state.copyWith(
+            status: PlaylistPlaybackStatus.playing,
+            activePlaylist: playlist,
+            currentTrackIndex: index,
+            clearError: true,
+          ),
+        );
+        await _playCurrentTrack();
+      }, canRun: () => index >= 0 && index < playlist.tracks.length);
 
   Future<void> pause() async {
     if (_state.status != PlaylistPlaybackStatus.playing) return;
@@ -151,14 +159,13 @@ class PlaylistPlaybackController extends ChangeNotifier {
     _setState(_state.copyWith(status: PlaylistPlaybackStatus.paused));
   }
 
-  Future<void> resume() async {
-    if (_state.status != PlaylistPlaybackStatus.paused) return;
+  Future<void> resume() => _withOwnership(() async {
     await _player.resume();
     _setState(_state.copyWith(status: PlaylistPlaybackStatus.playing));
-  }
+  }, canRun: () => _state.status == PlaylistPlaybackStatus.paused);
 
   Future<void> stop() async {
-    await _player.stop();
+    _playbackGeneration++;
     final repeat = _state.repeatMode;
     final shuffle = _state.shuffleEnabled;
     _shuffledOrder = null;
@@ -170,24 +177,27 @@ class PlaylistPlaybackController extends ChangeNotifier {
         shuffleEnabled: shuffle,
       ),
     );
-  }
-
-  Future<void> skipToTrack(int index) async {
-    final playlist = _state.activePlaylist;
-    if (playlist == null) return;
-    if (index < 0 || index >= playlist.tracks.length) return;
-
     await _player.stop();
-    _singleTrackMode = false;
-    _setState(
-      _state.copyWith(
-        status: PlaylistPlaybackStatus.playing,
-        currentTrackIndex: index,
-        clearError: true,
-      ),
-    );
-    await _playCurrentTrack();
   }
+
+  Future<void> skipToTrack(int index) => _withOwnership(
+    () async {
+      await _player.stop();
+      _singleTrackMode = false;
+      _setState(
+        _state.copyWith(
+          status: PlaylistPlaybackStatus.playing,
+          currentTrackIndex: index,
+          clearError: true,
+        ),
+      );
+      await _playCurrentTrack();
+    },
+    canRun: () =>
+        _state.activePlaylist != null &&
+        index >= 0 &&
+        index < _state.activePlaylist!.tracks.length,
+  );
 
   Future<void> next() async {
     final nextIndex = _nextIndex(
@@ -248,8 +258,20 @@ class PlaylistPlaybackController extends ChangeNotifier {
   void _onPlayerStateChanged() {
     final playerState = _player.state;
 
-    if (playerState.status == LocalPlaybackStatus.completed) {
-      _advance();
+    final previous = _previousPlayerStatus;
+    _previousPlayerStatus = playerState.status;
+    if (playerState.status == LocalPlaybackStatus.completed &&
+        previous != LocalPlaybackStatus.completed &&
+        _state.status == PlaylistPlaybackStatus.playing) {
+      final generation = _playbackGeneration;
+      unawaited(
+        _withOwnership(
+          _advance,
+          canRun: () =>
+              generation == _playbackGeneration &&
+              _state.status == PlaylistPlaybackStatus.playing,
+        ),
+      );
     } else if (playerState.status == LocalPlaybackStatus.error) {
       _setState(
         _state.copyWith(
@@ -260,7 +282,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
     }
   }
 
-  void _advance() {
+  Future<void> _advance() async {
     final playlist = _state.activePlaylist;
     final index = _state.currentTrackIndex;
     if (playlist == null || index == null) return;
@@ -274,7 +296,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
 
     if (_state.repeatMode == PlaylistRepeatMode.repeatOne) {
       _setState(_state.copyWith(status: PlaylistPlaybackStatus.playing));
-      _playCurrentTrack();
+      await _playCurrentTrack();
       return;
     }
 
@@ -298,7 +320,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
         currentTrackIndex: nextIndex,
       ),
     );
-    _playCurrentTrack();
+    await _playCurrentTrack();
   }
 
   int? _nextIndex({required bool wrap}) {
@@ -350,6 +372,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
   Future<void> _playCurrentTrack() async {
     final entry = _currentEntry;
     if (entry == null) return;
+    _playbackGeneration++;
     await _player.play(entry);
   }
 
@@ -375,13 +398,31 @@ class PlaylistPlaybackController extends ChangeNotifier {
     (sum, track) => sum + (track.source.duration ?? Duration.zero),
   );
 
+  Future<void> _withOwnership(
+    Future<void> Function() action, {
+    bool Function()? canRun,
+  }) {
+    bool isCurrent() => !_disposed && (canRun?.call() ?? true);
+    final ownership = _ownership;
+    if (ownership == null) return isCurrent() ? action() : Future<void>.value();
+    return ownership.run(
+      owner: this,
+      deactivate: stop,
+      action: action,
+      canRun: isCurrent,
+    );
+  }
+
   void _setState(PlaylistPlaybackState state) {
+    if (_disposed) return;
     _state = state;
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _ownership?.forget(this);
     _player.removeListener(_onPlayerStateChanged);
     super.dispose();
   }

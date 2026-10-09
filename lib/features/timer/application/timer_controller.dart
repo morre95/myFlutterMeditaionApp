@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../history/application/history_controller.dart';
 import '../../history/domain/meditation_session.dart';
 import '../../player/application/playback_source_resolver.dart';
+import '../../player/application/playback_ownership_controller.dart';
 import '../domain/bell_selection.dart';
 import '../domain/timer_settings.dart';
 import '../infrastructure/shared_preferences_timer_settings_repository.dart';
@@ -70,11 +71,13 @@ class TimerController extends ChangeNotifier {
     PlaybackSourceResolver? sourceResolver,
     HistoryController? history,
     WakeLock? wakeLock,
+    PlaybackOwnershipController? ownership,
   }) : _bellPlayer = bellPlayer ?? TimerBellPlayer(),
        _repository = repository,
        _sourceResolver = sourceResolver ?? const LocalPlaybackSourceResolver(),
        _history = history,
-       _wakeLock = wakeLock ?? const WakelockPlusWakeLock() {
+       _wakeLock = wakeLock ?? const WakelockPlusWakeLock(),
+       _ownership = ownership {
     final defaultBell = builtInBells.first;
     _state = TimerSessionState.initial(
       settings: TimerSettings(
@@ -92,6 +95,9 @@ class TimerController extends ChangeNotifier {
   final PlaybackSourceResolver _sourceResolver;
   final HistoryController? _history;
   final WakeLock _wakeLock;
+  final PlaybackOwnershipController? _ownership;
+  bool _disposed = false;
+  int _bellGeneration = 0;
   Timer? _timer;
   late TimerSessionState _state;
 
@@ -149,7 +155,8 @@ class TimerController extends ChangeNotifier {
   }
 
   /// Plays [bell] so the user can hear their selection before a session ends.
-  Future<void> previewBell(BellSelection bell) => _playBell(bell);
+  Future<void> previewBell(BellSelection bell) =>
+      _withOwnership(() => _playBell(bell));
 
   void _persistSettings() {
     final repository = _repository;
@@ -157,7 +164,9 @@ class TimerController extends ChangeNotifier {
     unawaited(repository.save(_state.settings));
   }
 
-  void start() {
+  Future<void> start() => _withOwnership(() async => _start());
+
+  void _start() {
     if (_state.isRunning) return;
     _timer?.cancel();
     if (_state.remaining <= Duration.zero || _state.isCompleted) {
@@ -184,6 +193,7 @@ class TimerController extends ChangeNotifier {
   }
 
   void reset() {
+    _bellGeneration++;
     _timer?.cancel();
     _setWakeLock(false);
     final duration = _state.settings.duration;
@@ -220,15 +230,21 @@ class TimerController extends ChangeNotifier {
     unawaited(
       _history?.record(_state.settings.duration, mode: SessionMode.timer),
     );
-    await _playBell(_state.settings.bell);
+    final generation = _bellGeneration;
+    await _withOwnership(
+      () => _playBell(_state.settings.bell),
+      canRun: () => generation == _bellGeneration && _state.isCompleted,
+    );
   }
 
   /// Plays a bell selection, surfacing a playback failure as an error message
   /// in state. Shared by end-of-session playback and dropdown previews.
   Future<void> _playBell(BellSelection bell) async {
+    final generation = _bellGeneration;
     try {
       if (bell.isCustom) {
         final media = await _sourceResolver.resolve(bell.source!);
+        if (_disposed || generation != _bellGeneration) return;
         await _bellPlayer.playMedia(media);
         return;
       }
@@ -245,6 +261,7 @@ class TimerController extends ChangeNotifier {
       }
       await _bellPlayer.playAsset(builtIn.assetPath);
     } catch (_) {
+      if (_disposed || generation != _bellGeneration) return;
       _setState(
         _state.copyWith(
           status: TimerSessionStatus.error,
@@ -271,20 +288,46 @@ class TimerController extends ChangeNotifier {
         StackTrace stackTrace,
       ) {
         if (kDebugMode) {
-          debugPrint('Failed to ${enable ? 'enable' : 'disable'} wakelock: '
-              '$error\n$stackTrace');
+          debugPrint(
+            'Failed to ${enable ? 'enable' : 'disable'} wakelock: '
+            '$error\n$stackTrace',
+          );
         }
       }),
     );
   }
 
+  Future<void> _withOwnership(
+    Future<void> Function() action, {
+    bool Function()? canRun,
+  }) {
+    bool isCurrent() => !_disposed && (canRun?.call() ?? true);
+    final ownership = _ownership;
+    if (ownership == null) {
+      return isCurrent() ? action() : Future<void>.value();
+    }
+    return ownership.run(
+      owner: this,
+      deactivate: () async {
+        reset();
+        await _bellPlayer.stop();
+      },
+      action: action,
+      canRun: isCurrent,
+    );
+  }
+
   void _setState(TimerSessionState nextState) {
+    if (_disposed) return;
     _state = nextState;
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _bellGeneration++;
+    _ownership?.forget(this);
     _timer?.cancel();
     _setWakeLock(false);
     _bellPlayer.dispose();

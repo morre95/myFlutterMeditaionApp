@@ -6,6 +6,9 @@ import '../features/favorites/infrastructure/shared_preferences_favorites_reposi
 import '../features/history/application/history_controller.dart';
 import '../features/history/infrastructure/shared_preferences_session_repository.dart';
 import '../features/player/application/playback_source_resolver.dart';
+import '../features/player/application/local_audio_playback_controller.dart';
+import '../features/player/application/playback_ownership_controller.dart';
+import '../features/playlists/application/playlist_playback_controller.dart';
 import '../features/playlists/application/playlist_controller.dart';
 import '../features/playlists/infrastructure/shared_preferences_playlist_repository.dart';
 import '../features/settings/application/app_settings_controller.dart';
@@ -15,9 +18,8 @@ import '../features/timer/infrastructure/shared_preferences_timer_settings_repos
 /// Owns the application's shared, long-lived singletons.
 ///
 /// Built once in `main()` before the widget tree is created. Screens read these
-/// via [AppScope]. Screen-scoped controllers (playback, per-session timer) are
-/// still created by their screens, but they pull shared repositories/controllers
-/// from here.
+/// via [AppScope]. Music playback belongs to the application so navigation
+/// does not interrupt it. Per-session silent timers remain screen-scoped.
 class AppDependencies {
   AppDependencies._({
     required this.playlistController,
@@ -28,7 +30,8 @@ class AppDependencies {
     required this.pcloudService,
     required this.timerSettingsRepository,
     required this.playbackSourceResolver,
-  });
+    LocalAudioPlaybackController? playbackController,
+  }) : _playbackController = playbackController;
 
   factory AppDependencies({
     PlaylistController? playlistController,
@@ -38,6 +41,7 @@ class AppDependencies {
     PCloudAuthController? pcloudAuthController,
     TimerSettingsRepository? timerSettingsRepository,
     PlaybackSourceResolver? playbackSourceResolver,
+    LocalAudioPlaybackController? playbackController,
   }) {
     final auth = pcloudAuthController ?? PCloudAuthController();
     final service = PCloudService(session: auth);
@@ -60,6 +64,7 @@ class AppDependencies {
           ),
       pcloudAuthController: auth,
       pcloudService: service,
+      playbackController: playbackController,
       timerSettingsRepository:
           timerSettingsRepository ?? SharedPreferencesTimerSettingsRepository(),
       playbackSourceResolver:
@@ -77,6 +82,21 @@ class AppDependencies {
   final TimerSettingsRepository timerSettingsRepository;
   final PlaybackSourceResolver playbackSourceResolver;
 
+  final PlaybackOwnershipController playbackOwnershipController =
+      PlaybackOwnershipController();
+  LocalAudioPlaybackController? _playbackController;
+  PlaylistPlaybackController? _playlistPlaybackController;
+
+  LocalAudioPlaybackController get playbackController => _playbackController ??=
+      LocalAudioPlaybackController(resolver: playbackSourceResolver);
+
+  PlaylistPlaybackController get playlistPlaybackController =>
+      _playlistPlaybackController ??= PlaylistPlaybackController(
+        player: playbackController,
+        history: historyController,
+        ownership: playbackOwnershipController,
+      );
+
   /// Loads persisted state. Call once at startup before `runApp`.
   Future<void> init() async {
     await Future.wait([
@@ -89,6 +109,8 @@ class AppDependencies {
   }
 
   void dispose() {
+    _playlistPlaybackController?.dispose();
+    _playbackController?.dispose();
     playlistController.dispose();
     appSettingsController.dispose();
     historyController.dispose();

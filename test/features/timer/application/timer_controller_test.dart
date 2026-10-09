@@ -210,6 +210,9 @@ class _FakeBellPlayer implements BellPlayer {
   }
 
   @override
+  Future<void> stop() async {}
+
+  @override
   void dispose() {}
 }
 

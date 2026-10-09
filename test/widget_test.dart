@@ -1,4 +1,3 @@
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/app/app_dependencies.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
@@ -27,14 +26,10 @@ void main() {
     expect(find.text('Progress'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
 
-    // The read-only notice sits below the fold; scroll it into view.
-    await tester.scrollUntilVisible(
-      find.textContaining('Source audio files are treated as read-only'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
     expect(
-      find.textContaining('Source audio files are treated as read-only'),
+      find.text(
+        'Create and play named playlists of read-only meditation audio.',
+      ),
       findsOneWidget,
     );
 
