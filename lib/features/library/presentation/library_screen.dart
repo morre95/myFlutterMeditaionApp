@@ -4,6 +4,7 @@ import '../../../app/app_scope.dart';
 import '../../../shared/domain/audio_source.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../cloud/pcloud/application/pcloud_auth_controller.dart';
+import '../../cloud/pcloud/application/pcloud_download_controller.dart';
 import '../../cloud/pcloud/application/pcloud_service.dart';
 import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../playlists/application/playlist_controller.dart';
@@ -11,7 +12,8 @@ import '../application/local_wav_picker_service.dart';
 import '../application/local_audio_library.dart';
 import 'pcloud_browser_screen.dart';
 
-/// Imports durable local copies or adds read-only pCloud references to playlists.
+/// Imports durable local copies, adds pCloud references to playlists, and
+/// downloads pCloud audio for offline playback.
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -23,6 +25,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   late final PlaylistController _playlists;
   late final PCloudAuthController _pcloudAuth;
   late final PCloudService _pcloudService;
+  late final PCloudDownloadController _pcloudDownloads;
   late final LocalAudioFilePicker _picker;
   bool _resolved = false;
   bool _busy = false;
@@ -38,6 +41,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _picker = scope.localAudioPicker;
     _pcloudAuth = scope.pcloudAuthController;
     _pcloudService = scope.pcloudService;
+    _pcloudDownloads = scope.pcloudDownloadController;
   }
 
   /// Ensures there is a target playlist, prompting to pick or create one.
@@ -124,6 +128,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       MaterialPageRoute<void>(
         builder: (_) => PCloudBrowserScreen(
           service: _pcloudService,
+          downloads: _pcloudDownloads,
           onAddFile: (AudioSource source) async {
             final added = await _playlists.addTracks(playlistId, [source]);
             return added.isNotEmpty;
@@ -220,7 +225,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       child: ListTile(
         leading: const Icon(Icons.cloud_done),
         title: const Text('pCloud'),
-        subtitle: const Text('Browse and add audio from your account.'),
+        subtitle: const Text(
+          'Browse, add, or download audio from your account.',
+        ),
         trailing: const Icon(Icons.chevron_right),
         onTap: _busy ? null : _browsePCloud,
       ),

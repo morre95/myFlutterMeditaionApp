@@ -4,6 +4,7 @@ import '../../../app/app_scope.dart';
 import '../../../shared/domain/audio_source.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../cloud/pcloud/application/pcloud_auth_controller.dart';
+import '../../cloud/pcloud/application/pcloud_download_controller.dart';
 import '../../cloud/pcloud/application/pcloud_service.dart';
 import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../favorites/application/favorites_controller.dart';
@@ -62,6 +63,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   late final AudioDurationProbe _durationProbe;
   PCloudAuthController? _pcloudAuth;
   PCloudService? _pcloudService;
+  PCloudDownloadController? _pcloudDownloads;
 
   late final bool _ownsPlaylistPlaybackController;
   bool _dependenciesResolved = false;
@@ -99,6 +101,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     _favorites = widget._favoritesController ?? scope?.favoritesController;
     _pcloudAuth = widget._pcloudAuthController ?? scope?.pcloudAuthController;
     _pcloudService = widget._pcloudService ?? scope?.pcloudService;
+    _pcloudDownloads = scope?.pcloudDownloadController;
     _ownsPlaylistPlaybackController = widget._playbackController != null;
     _playlistPlaybackController = _ownsPlaylistPlaybackController
         ? PlaylistPlaybackController(
@@ -223,6 +226,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
       MaterialPageRoute<void>(
         builder: (_) => PCloudBrowserScreen(
           service: service,
+          downloads: _pcloudDownloads,
           onAddFile: (AudioSource source) async {
             final added = await _playlistController.addTracks(playlistId, [
               source,
