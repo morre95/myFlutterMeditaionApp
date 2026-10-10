@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
-import '../../../shared/domain/audio_source.dart';
 import '../../../shared/presentation/countdown_circle.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../settings/application/app_settings_controller.dart';
 import '../application/timer_controller.dart';
 import '../domain/bell_selection.dart';
+import 'widgets/bell_dropdown.dart';
 
 class TimerModeScreen extends StatefulWidget {
   const TimerModeScreen({super.key, TimerController? controller})
@@ -52,34 +52,6 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
       _controller.dispose();
     }
     super.dispose();
-  }
-
-  /// Maps the current [BellSelection] to a dropdown key, falling back to the
-  /// first enabled built-in bell if the selected bell was removed or disabled.
-  String _currentBellKey(
-    BellSelection bell,
-    List<AudioSource> customBells,
-    List<BuiltInBell> enabledBuiltIns,
-  ) {
-    if (bell.isCustom) {
-      final id = bell.source!.id;
-      if (customBells.any((b) => b.id == id)) return 'custom:$id';
-      return 'builtin:${enabledBuiltIns.first.id}';
-    }
-    final name = bell.name;
-    if (enabledBuiltIns.any((b) => b.id == name)) return 'builtin:$name';
-    return 'builtin:${enabledBuiltIns.first.id}';
-  }
-
-  BellSelection? _bellFromKey(String key, List<AudioSource> customBells) {
-    if (key.startsWith('custom:')) {
-      final id = key.substring('custom:'.length);
-      for (final bell in customBells) {
-        if (bell.id == id) return BellSelection.custom(bell);
-      }
-      return null;
-    }
-    return BellSelection.builtIn(key.substring('builtin:'.length));
   }
 
   @override
@@ -136,41 +108,16 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
                           ),
                           Text('${state.settings.duration.inMinutes} minutes'),
                           const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
+                          BellDropdown(
                             key: const Key('timer-bell-dropdown'),
-                            initialValue: _currentBellKey(
-                              state.settings.bell,
-                              customBells,
-                              enabledBuiltIns,
-                            ),
-                            decoration: const InputDecoration(
-                              labelText: 'Ending bell',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: [
-                              for (final bell in enabledBuiltIns)
-                                DropdownMenuItem<String>(
-                                  value: 'builtin:${bell.id}',
-                                  child: Text(bell.label),
-                                ),
-                              for (final bell in customBells)
-                                DropdownMenuItem<String>(
-                                  value: 'custom:${bell.id}',
-                                  child: Text(bell.displayName),
-                                ),
-                            ],
-                            onChanged: (value) {
-                              if (value == null) return;
-                              final selection = _bellFromKey(
-                                value,
-                                customBells,
-                              );
-                              if (selection != null) {
-                                _controller.setBell(selection);
-                                // Preview the bell so the user hears their
-                                // selection immediately.
-                                _controller.previewBell(selection);
-                              }
+                            selection: state.settings.bell,
+                            builtIns: enabledBuiltIns,
+                            customBells: customBells,
+                            onChanged: (selection) {
+                              _controller.setBell(selection);
+                              // Preview the bell so the user hears their
+                              // selection immediately.
+                              _controller.previewBell(selection);
                             },
                           ),
                         ],
