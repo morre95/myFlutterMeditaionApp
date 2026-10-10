@@ -17,6 +17,9 @@ import 'package:my_meditation_app/features/timer/application/timer_bell_player.d
 import 'package:my_meditation_app/features/timer/domain/bell_selection.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:my_meditation_app/features/history/application/history_controller.dart';
+import 'package:my_meditation_app/features/history/domain/meditation_session.dart';
+import 'package:my_meditation_app/features/history/infrastructure/shared_preferences_session_repository.dart';
 
 const _gong = AudioSource(
   id: 'local:/bells/gong.mp3',
@@ -48,9 +51,13 @@ class _Harness {
       ownership: ownership,
       appSettings: appSettings,
       clock: clock ?? () => async.elapsed,
+      history: history,
     );
   }
 
+  final history = HistoryController(
+    repository: SharedPreferencesSessionRepository(),
+  );
   final FakeAsync async;
   final _AudioPlayer audio;
   late final _BellPlayer bellPlayer;
@@ -77,6 +84,97 @@ class _Harness {
 }
 
 void main() {
+  test(
+    'streamed unknown-duration repeats and pause persist completed active progress',
+    () {
+      fakeAsync((async) {
+        final h = _Harness(async, resolver: _StreamResolver());
+        h.startWith(_cloud, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 3));
+        h.audio.positions.add(const Duration(seconds: 10));
+        async.flushMicrotasks();
+        h.audio.completions.add(true);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 3));
+        h.audio.positions.add(const Duration(seconds: 20));
+        async.flushMicrotasks();
+        h.session.pause();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 30));
+        h.session.resume();
+        async.flushMicrotasks();
+        h.audio.positions.add(const Duration(seconds: 50));
+        async.flushMicrotasks();
+        h.session.end();
+        h.session.end();
+        async.flushMicrotasks();
+        expect(
+          h.history.sessions.single.actualDuration,
+          const Duration(minutes: 1),
+        );
+        expect(h.history.sessions.single.outcome, SessionOutcome.completed);
+        expect(h.history.currentStreak, 1);
+        h.dispose();
+      });
+    },
+  );
+
+  test('completed Meditate survives reentrant End and repeated completion', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.session.addListener(() {
+        if (h.session.state.status == MeditationSessionStatus.completed) {
+          h.session.end();
+        }
+      });
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 1));
+      h.audio.completions.add(true);
+      async.flushMicrotasks();
+      expect(
+        h.history.sessions.single.actualDuration,
+        const Duration(minutes: 1),
+      );
+      expect(h.history.sessions.single.outcome, SessionOutcome.completed);
+      expect(h.history.currentStreak, 1);
+      expect(h.audio.isPlaying, isFalse);
+      h.dispose();
+    });
+  });
+
+  test('End records measured active time once across loading and pause', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.audio.loadReady = Completer<void>();
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(seconds: 8));
+      h.audio.loadReady!.complete();
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 7));
+      h.session.pause();
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 30));
+      h.session.resume();
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 5));
+      h.session.end();
+      h.session.end();
+      h.audio.completions.add(true);
+      async.flushMicrotasks();
+      expect(
+        h.history.sessions.single.actualDuration,
+        const Duration(seconds: 12),
+      );
+      expect(
+        h.history.sessions.single.plannedDuration,
+        const Duration(minutes: 1),
+      );
+      expect(h.history.sessions.single.outcome, SessionOutcome.endedEarly);
+      expect(h.history.currentStreak, 0);
+      h.dispose();
+    });
+  });
+
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test('stream loading and stalled positions consume no meditation time', () {

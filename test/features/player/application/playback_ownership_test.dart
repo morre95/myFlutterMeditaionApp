@@ -91,6 +91,7 @@ void main() {
       final bell = _BellPlayer();
       final resolver = _DeferredResolver();
       final timer = TimerController(
+        clock: () => async.elapsed,
         bellPlayer: bell,
         sourceResolver: resolver,
         wakeLock: _WakeLock(),

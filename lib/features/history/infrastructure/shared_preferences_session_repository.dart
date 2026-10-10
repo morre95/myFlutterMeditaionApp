@@ -29,6 +29,8 @@ class SharedPreferencesSessionRepository implements SessionRepository {
   Future<void> saveAll(List<MeditationSession> sessions) async {
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(sessions.map((s) => s.toJson()).toList());
-    await prefs.setString(_key, encoded);
+    if (!await prefs.setString(_key, encoded)) {
+      throw StateError('Could not save session history.');
+    }
   }
 }

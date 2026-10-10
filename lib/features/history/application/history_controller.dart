@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../domain/meditation_session.dart';
@@ -15,6 +17,17 @@ class HistoryController extends ChangeNotifier {
   final DateTime Function() _now;
 
   List<MeditationSession> _sessions = [];
+  Future<void> _pending = Future<void>.value();
+  bool _loaded = false;
+  final Map<String, MeditationSession> _unsaved = {};
+
+  Future<void> _savePending() async {
+    if (_unsaved.isEmpty) return;
+    final next = [..._sessions, ..._unsaved.values];
+    await _repository.saveAll(next);
+    _sessions = next;
+    _unsaved.clear();
+  }
 
   /// Sessions most-recent first.
   List<MeditationSession> get sessions {
@@ -29,7 +42,10 @@ class HistoryController extends ChangeNotifier {
   /// session yet) that contain at least one completed session.
   int get currentStreak {
     if (_sessions.isEmpty) return 0;
-    final days = _sessions.map((s) => _dateOnly(s.completedAt)).toSet();
+    final days = _sessions
+        .where((s) => s.outcome == SessionOutcome.completed)
+        .map((s) => _dateOnly(s.completedAt))
+        .toSet();
     final today = _dateOnly(_now());
 
     DateTime anchor;
@@ -50,22 +66,48 @@ class HistoryController extends ChangeNotifier {
     return streak;
   }
 
-  Future<void> load() async {
-    _sessions = await _repository.loadAll();
-    notifyListeners();
+  Future<void> _serialize(Future<void> Function() action) {
+    final operation = _pending.then((_) => action());
+    // A failed save must not poison later retries.
+    _pending = operation.catchError((Object _) {});
+    return operation;
   }
 
-  Future<void> record(Duration duration, {required SessionMode mode}) async {
-    final completedAt = _now();
-    final session = MeditationSession(
-      id: 'session-${completedAt.microsecondsSinceEpoch}',
-      completedAt: completedAt,
-      duration: duration,
-      mode: mode,
-    );
-    _sessions = [..._sessions, session];
-    await _repository.saveAll(_sessions);
+  Future<void> _ensureLoaded() async {
+    if (_loaded) return;
+    _sessions = await _repository.loadAll();
+    _loaded = true;
+  }
+
+  Future<void> load() => _serialize(() async {
+    await _ensureLoaded();
+    await _savePending();
     notifyListeners();
+  });
+
+  Future<void> record(
+    Duration? duration, {
+    required SessionMode mode,
+    String? id,
+    Duration? actualDuration,
+    SessionOutcome outcome = SessionOutcome.completed,
+  }) {
+    final session = MeditationSession(
+      id: id ?? newSessionId(),
+      completedAt: _now(),
+      duration: duration ?? Duration.zero,
+      plannedDuration: duration,
+      actualDuration: actualDuration ?? duration,
+      mode: mode,
+      outcome: outcome,
+    );
+    return _serialize(() async {
+      await _ensureLoaded();
+      if (_sessions.any((existing) => existing.id == session.id)) return;
+      _unsaved.putIfAbsent(session.id, () => session);
+      await _savePending();
+      notifyListeners();
+    });
   }
 
   DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
