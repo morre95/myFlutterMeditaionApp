@@ -3,6 +3,8 @@ import '../features/meditation/application/meditation_session_controller.dart';
 import '../features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
 import '../features/library/application/local_wav_picker_service.dart';
 import '../features/cloud/pcloud/application/pcloud_auth_controller.dart';
+import '../features/cloud/pcloud/application/pcloud_download_controller.dart';
+import '../features/cloud/pcloud/application/pcloud_download_store.dart';
 import '../features/cloud/pcloud/application/pcloud_playback_source_resolver.dart';
 import '../features/cloud/pcloud/application/pcloud_service.dart';
 import '../features/favorites/application/favorites_controller.dart';
@@ -36,6 +38,7 @@ class AppDependencies {
     required this.favoritesController,
     required this.pcloudAuthController,
     required this.pcloudService,
+    required this.pcloudDownloadController,
     required this.timerSettingsRepository,
     required this.meditationSettingsRepository,
     required this.playbackSourceResolver,
@@ -56,6 +59,7 @@ class AppDependencies {
     FavoritesController? favoritesController,
     PCloudAuthController? pcloudAuthController,
     PCloudService? pcloudService,
+    PCloudDownloadStore? pcloudDownloadStore,
     TimerSettingsRepository? timerSettingsRepository,
     MeditationSettingsRepository? meditationSettingsRepository,
     PlaybackSourceResolver? playbackSourceResolver,
@@ -67,6 +71,10 @@ class AppDependencies {
     final library = localAudioLibrary ?? LocalAudioLibrary();
     final auth = pcloudAuthController ?? PCloudAuthController();
     final service = pcloudService ?? PCloudService(session: auth);
+    final downloads = PCloudDownloadController(
+      service: service,
+      store: pcloudDownloadStore ?? PCloudDownloadStore(),
+    );
     return AppDependencies._(
       localAudioLibrary: library,
       localAudioPicker:
@@ -89,6 +97,7 @@ class AppDependencies {
           ),
       pcloudAuthController: auth,
       pcloudService: service,
+      pcloudDownloadController: downloads,
       playbackController: playbackController,
       meditationPlaybackController: meditationPlaybackController,
       meditationBellPlayer: meditationBellPlayer,
@@ -100,7 +109,7 @@ class AppDependencies {
           SharedPreferencesMeditationSettingsRepository(),
       playbackSourceResolver:
           playbackSourceResolver ??
-          PCloudPlaybackSourceResolver(service: service),
+          PCloudPlaybackSourceResolver(service: service, downloads: downloads),
     );
   }
 
@@ -117,6 +126,7 @@ class AppDependencies {
   final FavoritesController favoritesController;
   final PCloudAuthController pcloudAuthController;
   final PCloudService pcloudService;
+  final PCloudDownloadController pcloudDownloadController;
   final TimerSettingsRepository timerSettingsRepository;
   final MeditationSettingsRepository meditationSettingsRepository;
   final PlaybackSourceResolver playbackSourceResolver;
@@ -167,6 +177,7 @@ class AppDependencies {
       historyController.load(),
       favoritesController.load(),
       pcloudAuthController.loadStoredSession(),
+      pcloudDownloadController.load(),
       meditationSessionController.load(),
     ]);
   }
@@ -181,5 +192,6 @@ class AppDependencies {
     historyController.dispose();
     favoritesController.dispose();
     pcloudAuthController.dispose();
+    pcloudDownloadController.dispose();
   }
 }

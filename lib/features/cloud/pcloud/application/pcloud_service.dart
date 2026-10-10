@@ -69,6 +69,20 @@ class PCloudService {
     return 'https://${hosts.first}$path';
   }
 
+  /// Opens a byte transfer of a pCloud file from a fresh file link.
+  Future<PCloudTransfer> openDownload(String fileId) async {
+    final link = await getFileLink(fileId);
+    final response = await _client.send(http.Request('GET', Uri.parse(link)));
+    if (response.statusCode != 200) {
+      await response.stream.drain<void>();
+      throw PCloudException('pCloud download failed (${response.statusCode}).');
+    }
+    return PCloudTransfer(
+      bytes: response.stream,
+      length: response.contentLength,
+    );
+  }
+
   Future<Map<String, dynamic>> _get(
     String endpoint,
     Map<String, String> params,
@@ -96,4 +110,12 @@ class PCloudService {
     }
     return json;
   }
+}
+
+/// The body of a pCloud file download; [length] is null when not announced.
+class PCloudTransfer {
+  const PCloudTransfer({required this.bytes, required this.length});
+
+  final Stream<List<int>> bytes;
+  final int? length;
 }

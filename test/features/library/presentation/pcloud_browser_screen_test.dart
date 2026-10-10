@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_download_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_download_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_service.dart';
 import 'package:my_meditation_app/features/library/presentation/pcloud_browser_screen.dart';
 
@@ -63,7 +67,98 @@ void main() {
 
     expect(find.widgetWithText(AppBar, 'pCloud'), findsOneWidget);
   });
+
+  testWidgets(
+    'shows download progress, cancel, retry, and offline availability',
+    (tester) async {
+      await tester.runAsync(() async {
+        final root = await Directory.systemTemp.createTemp('browser-dl-');
+        final transfers = <StreamController<List<int>>>[];
+        var offline = false;
+        final service = PCloudService(
+          session: const _FakeSession(),
+          client: MockClient.streaming((request, _) async {
+            if (offline) throw http.ClientException('Network is unreachable');
+            if (request.url.path == '/listfolder') {
+              return _json({
+                'result': 0,
+                'metadata': {
+                  'contents': [
+                    {'name': 'rain.mp3', 'isfolder': false, 'fileid': 100},
+                  ],
+                },
+              });
+            }
+            if (request.url.path == '/getfilelink') {
+              return _json({
+                'result': 0,
+                'hosts': ['c1.pcloud.com'],
+                'path': '/dl/rain.mp3',
+              });
+            }
+            final bytes = StreamController<List<int>>();
+            transfers.add(bytes);
+            return http.StreamedResponse(bytes.stream, 200, contentLength: 4);
+          }),
+        );
+        final downloads = PCloudDownloadController(
+          service: service,
+          store: PCloudDownloadStore(directory: root),
+        );
+        await tester.pumpWidget(_app(service, downloads: downloads));
+        await _openBrowser(tester);
+        expect(find.text('Not downloaded'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Download rain.mp3'));
+        await _pumpWhile(tester, () => transfers.isEmpty);
+        transfers.last.add([1, 2]);
+        await _pumpUntil(tester, find.text('Downloading 50%'));
+        expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Cancel download'));
+        await _pumpUntil(tester, find.byTooltip('Download rain.mp3'));
+
+        offline = true;
+        await tester.tap(find.byTooltip('Download rain.mp3'));
+        await _pumpUntil(
+          tester,
+          find.text(
+            'Download of rain.mp3 failed. Check your connection and retry.',
+          ),
+        );
+
+        offline = false;
+        await tester.tap(find.byTooltip('Retry download'));
+        await _pumpWhile(tester, () => transfers.length < 2);
+        transfers.last.add([1, 2, 3, 4]);
+        await transfers.last.close();
+        await _pumpUntil(tester, find.text('Available offline'));
+        expect(find.byTooltip('Download rain.mp3'), findsNothing);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await root.delete(recursive: true);
+      });
+    },
+  );
 }
+
+/// Polls frames while real file and stream work inside `runAsync` completes.
+Future<void> _pumpUntil(WidgetTester tester, Finder finder) async {
+  await _pumpWhile(tester, () => finder.evaluate().isEmpty);
+  expect(finder, findsOneWidget);
+}
+
+/// Polls frames until [waiting] turns false, bounded so a missing transfer
+/// fails the test instead of hanging it.
+Future<void> _pumpWhile(WidgetTester tester, bool Function() waiting) async {
+  for (var i = 0; i < 200 && waiting(); i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    await tester.pump();
+  }
+}
+
+http.StreamedResponse _json(Map<String, Object> body) =>
+    http.StreamedResponse(Stream.value(utf8.encode(jsonEncode(body))), 200);
 
 /// Folder tree: pCloud > Sleep > Deep, with one audio file inside Deep.
 PCloudService _service() {
@@ -91,7 +186,7 @@ PCloudService _service() {
   return PCloudService(session: const _FakeSession(), client: client);
 }
 
-Widget _app(PCloudService service) {
+Widget _app(PCloudService service, {PCloudDownloadController? downloads}) {
   return MaterialApp(
     home: Scaffold(
       body: Builder(
@@ -100,6 +195,7 @@ Widget _app(PCloudService service) {
             MaterialPageRoute<void>(
               builder: (_) => PCloudBrowserScreen(
                 service: service,
+                downloads: downloads,
                 onAddFile: (_) async => true,
               ),
             ),
