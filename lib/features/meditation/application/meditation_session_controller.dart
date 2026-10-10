@@ -325,7 +325,12 @@ class MeditationSessionController extends ChangeNotifier {
 
   void _applyFade() {
     final level = remaining.inMicroseconds / fadeDuration.inMicroseconds;
-    unawaited(_player.setVolume(level.clamp(0.0, 1.0)));
+    // A missed step is only less smooth: the deadline still stops the sound.
+    unawaited(
+      _player.setVolume(level.clamp(0.0, 1.0)).catchError((Object error) {
+        debugPrint('Meditate fade step failed (${error.runtimeType}).');
+      }),
+    );
   }
 
   void _stopCounting() {

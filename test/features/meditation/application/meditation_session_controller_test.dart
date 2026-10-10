@@ -663,6 +663,18 @@ void main() {
       h.dispose();
     });
   });
+
+  test('a failed fade step keeps the session running to its end', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 1));
+      h.audio.volumeError = StateError('native volume failed');
+      async.elapse(const Duration(minutes: 1));
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(h.audio.log.last, 'bell bells/bell_1.mp3');
+      h.dispose();
+    });
+  });
 }
 
 Playlist _playlist() => Playlist(
