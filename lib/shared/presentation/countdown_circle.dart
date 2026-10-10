@@ -38,10 +38,17 @@ class CountdownCircle extends StatelessWidget {
     );
   }
 
+  /// Partial seconds round up, so a countdown reaches 00:00 only when done.
   String _formatDuration(Duration duration) {
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final hours = duration.inHours;
+    final totalSeconds =
+        (duration.inMicroseconds + Duration.microsecondsPerSecond - 1) ~/
+        Duration.microsecondsPerSecond;
+    final minutes = (totalSeconds ~/ 60)
+        .remainder(60)
+        .toString()
+        .padLeft(2, '0');
+    final seconds = totalSeconds.remainder(60).toString().padLeft(2, '0');
+    final hours = totalSeconds ~/ 3600;
     if (hours > 0) {
       final hh = hours.toString().padLeft(2, '0');
       return '$hh:$minutes:$seconds';
