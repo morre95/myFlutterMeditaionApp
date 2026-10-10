@@ -9,12 +9,86 @@ import 'package:my_meditation_app/features/timer/application/wake_lock.dart';
 import 'package:my_meditation_app/features/timer/domain/bell_selection.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:my_meditation_app/features/history/domain/meditation_session.dart';
 
 void main() {
+  test(
+    'Reset from running notification ends once and never completes later',
+    () {
+      SharedPreferences.setMockInitialValues({});
+      fakeAsync((async) {
+        final history = HistoryController(
+          repository: SharedPreferencesSessionRepository(),
+        );
+        final timer = TimerController(
+          bellPlayer: _FakeBellPlayer(),
+          wakeLock: _FakeWakeLock(),
+          history: history,
+          clock: () => async.elapsed,
+        );
+        var notifications = 0;
+        timer.addListener(() {
+          notifications++;
+          if (timer.state.isRunning) timer.reset();
+        });
+        timer.setDuration(const Duration(minutes: 1));
+        timer.start();
+        async.flushMicrotasks();
+        final afterEnd = notifications;
+        async.elapse(const Duration(minutes: 2));
+        async.flushMicrotasks();
+        expect(notifications, afterEnd);
+        expect(timer.state.status, TimerSessionStatus.idle);
+        expect(history.sessions.single.outcome, SessionOutcome.endedEarly);
+        expect(history.sessions.single.actualDuration, Duration.zero);
+        timer.dispose();
+      });
+    },
+  );
+
+  test(
+    'Timer measures active time across pause and delayed refresh before End',
+    () {
+      SharedPreferences.setMockInitialValues({});
+      fakeAsync((async) {
+        var elapsed = Duration.zero;
+        final history = HistoryController(
+          repository: SharedPreferencesSessionRepository(),
+        );
+        final timer = TimerController(
+          bellPlayer: _FakeBellPlayer(),
+          wakeLock: _FakeWakeLock(),
+          history: history,
+          clock: () => elapsed,
+        );
+        timer.setDuration(const Duration(minutes: 1));
+        timer.start();
+        async.flushMicrotasks();
+        elapsed = const Duration(milliseconds: 7500);
+        timer.pause();
+        elapsed = const Duration(seconds: 100);
+        timer.start();
+        async.flushMicrotasks();
+        elapsed = const Duration(seconds: 105);
+        timer.reset();
+        timer.reset();
+        async.flushMicrotasks();
+        expect(
+          history.sessions.single.actualDuration,
+          const Duration(milliseconds: 12500),
+        );
+        expect(history.sessions.single.outcome, SessionOutcome.endedEarly);
+        expect(history.currentStreak, 0);
+        timer.dispose();
+      });
+    },
+  );
+
   test('plays a built-in bell asset on completion', () {
     fakeAsync((async) {
       final bellPlayer = _FakeBellPlayer();
       final controller = TimerController(
+        clock: () => async.elapsed,
         bellPlayer: bellPlayer,
         wakeLock: _FakeWakeLock(),
       );
@@ -36,6 +110,7 @@ void main() {
     fakeAsync((async) {
       final bellPlayer = _FakeBellPlayer();
       final controller = TimerController(
+        clock: () => async.elapsed,
         bellPlayer: bellPlayer,
         sourceResolver: const LocalPlaybackSourceResolver(),
         wakeLock: _FakeWakeLock(),
@@ -112,6 +187,7 @@ void main() {
         clock: () => DateTime(2026, 6, 6, 9),
       );
       final controller = TimerController(
+        clock: () => async.elapsed,
         bellPlayer: _FakeBellPlayer(),
         history: history,
         wakeLock: _FakeWakeLock(),
@@ -178,6 +254,7 @@ void main() {
     fakeAsync((async) {
       final wakeLock = _FakeWakeLock();
       final controller = TimerController(
+        clock: () => async.elapsed,
         bellPlayer: _FakeBellPlayer(),
         wakeLock: wakeLock,
       );

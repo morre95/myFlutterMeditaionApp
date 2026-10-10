@@ -73,6 +73,7 @@ class TimerController extends ChangeNotifier {
     HistoryController? history,
     WakeLock? wakeLock,
     PlaybackOwnershipController? ownership,
+    Duration Function()? clock,
   }) : _bell = BellRinger(
          player: bellPlayer ?? TimerBellPlayer(),
          sourceResolver: sourceResolver ?? const LocalPlaybackSourceResolver(),
@@ -80,7 +81,8 @@ class TimerController extends ChangeNotifier {
        _repository = repository,
        _history = history,
        _wakeLock = wakeLock ?? const WakelockPlusWakeLock(),
-       _ownership = ownership {
+       _ownership = ownership,
+       _clock = clock ?? _monotonicClock() {
     final defaultBell = builtInBells.first;
     _state = TimerSessionState.initial(
       settings: TimerSettings(
@@ -96,6 +98,49 @@ class TimerController extends ChangeNotifier {
   final BellRinger _bell;
   final TimerSettingsRepository? _repository;
   final HistoryController? _history;
+  final Duration Function() _clock;
+  static Duration Function() _monotonicClock() {
+    final stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsed;
+  }
+
+  String? _sessionId;
+  Duration _activeElapsed = Duration.zero;
+  Duration? _countingSince;
+  Duration _planned = Duration.zero;
+
+  Duration get _elapsed =>
+      _activeElapsed +
+      (_countingSince == null ? Duration.zero : _clock() - _countingSince!);
+  void _stopCounting() {
+    _activeElapsed = _elapsed;
+    _countingSince = null;
+  }
+
+  void _recordOutcome() {
+    final id = _sessionId;
+    if (id == null) return;
+    _stopCounting();
+    _sessionId = null;
+    final completed = _activeElapsed >= _planned;
+    final actual = completed ? _planned : _activeElapsed;
+    unawaited(
+      _history
+          ?.record(
+            _planned,
+            id: id,
+            actualDuration: actual,
+            mode: SessionMode.timer,
+            outcome: completed
+                ? SessionOutcome.completed
+                : SessionOutcome.endedEarly,
+          )
+          .catchError((Object error) {
+            debugPrint('Could not save timer history (${error.runtimeType}).');
+          }),
+    );
+  }
+
   final WakeLock _wakeLock;
   final PlaybackOwnershipController? _ownership;
   bool _disposed = false;
@@ -131,7 +176,7 @@ class TimerController extends ChangeNotifier {
   BellSelection get selectedBell => _state.settings.bell;
 
   void setDuration(Duration duration) {
-    if (_state.isRunning) return;
+    if (_state.isRunning || _state.isPaused) return;
     final sanitizedMinutes = duration.inMinutes.clamp(
       _minDurationMinutes,
       _maxDurationMinutes,
@@ -187,9 +232,17 @@ class TimerController extends ChangeNotifier {
         ),
       );
     }
+    if (_sessionId == null) {
+      _sessionId = newSessionId();
+      _activeElapsed = Duration.zero;
+      _planned = _state.settings.duration;
+    }
+    _countingSince = _clock();
+    final session = _sessionId;
     _setState(
       _state.copyWith(status: TimerSessionStatus.running, clearError: true),
     );
+    if (!_state.isRunning || _sessionId != session) return;
     _setWakeLock(true);
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
   }
@@ -197,8 +250,15 @@ class TimerController extends ChangeNotifier {
   void pause() {
     if (!_state.isRunning) return;
     _timer?.cancel();
+    _stopCounting();
     _setWakeLock(false);
-    _setState(_state.copyWith(status: TimerSessionStatus.paused));
+    _setState(
+      _state.copyWith(
+        status: TimerSessionStatus.paused,
+        remaining:
+            _planned - (_activeElapsed > _planned ? _planned : _activeElapsed),
+      ),
+    );
   }
 
   void reset() {
@@ -207,6 +267,7 @@ class TimerController extends ChangeNotifier {
   }
 
   void _resetSession() {
+    _recordOutcome();
     _bellGeneration++;
     _timer?.cancel();
     _setWakeLock(false);
@@ -221,7 +282,8 @@ class TimerController extends ChangeNotifier {
   }
 
   void _onTick() {
-    final next = _state.remaining - const Duration(seconds: 1);
+    if (!_state.isRunning || _sessionId == null) return;
+    final next = _planned - _elapsed;
     if (next <= Duration.zero) {
       _timer?.cancel();
       _complete();
@@ -231,6 +293,8 @@ class TimerController extends ChangeNotifier {
   }
 
   Future<void> _complete() async {
+    if (_sessionId == null) return;
+    _recordOutcome();
     _setWakeLock(false);
     _setState(
       _state.copyWith(
@@ -238,11 +302,6 @@ class TimerController extends ChangeNotifier {
         status: TimerSessionStatus.completed,
         clearError: true,
       ),
-    );
-    // Record the session independently of the bell so a playback error never
-    // discards a completed session.
-    unawaited(
-      _history?.record(_state.settings.duration, mode: SessionMode.timer),
     );
     final generation = _bellGeneration;
     await _withOwnership(
