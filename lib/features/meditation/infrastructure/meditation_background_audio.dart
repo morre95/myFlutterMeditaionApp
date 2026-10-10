@@ -30,9 +30,11 @@ class MeditationBackgroundAudio {
             'com.example.my_meditation_app.meditation',
         androidNotificationChannelName: 'Meditation',
         androidNotificationIcon: 'drawable/ic_meditation_notification',
-        // Keep foreground protection for an explicit locked-screen Resume,
-        // including Android 15+'s background focus restrictions.
-        androidStopForegroundOnPause: false,
+        // Release the foreground service and its partial wakelock whenever
+        // protected playback ends. stopSelf alone cannot destroy a service
+        // still bound to MainActivity. Explicit Resume publishes playing=true
+        // before acquiring focus and restarts foreground protection.
+        androidStopForegroundOnPause: true,
       ),
     );
     return MeditationBackgroundAudio._(audioSession, handler, session);
