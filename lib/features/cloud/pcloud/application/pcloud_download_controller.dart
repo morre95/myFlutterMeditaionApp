@@ -1,0 +1,207 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+
+import '../../../../shared/domain/audio_source.dart';
+import '../domain/pcloud_config.dart';
+import 'pcloud_download_store.dart';
+import 'pcloud_service.dart';
+
+enum PCloudDownloadStatus { notDownloaded, downloading, available, failed }
+
+class PCloudDownloadState {
+  const PCloudDownloadState._({
+    required this.status,
+    this.receivedBytes = 0,
+    this.totalBytes,
+    this.copy,
+    this.errorMessage,
+  });
+
+  const PCloudDownloadState.notDownloaded()
+    : this._(status: PCloudDownloadStatus.notDownloaded);
+
+  const PCloudDownloadState.downloading({
+    required int receivedBytes,
+    int? totalBytes,
+  }) : this._(
+         status: PCloudDownloadStatus.downloading,
+         receivedBytes: receivedBytes,
+         totalBytes: totalBytes,
+       );
+
+  const PCloudDownloadState.available(PCloudOfflineCopy copy)
+    : this._(status: PCloudDownloadStatus.available, copy: copy);
+
+  const PCloudDownloadState.failed(String message)
+    : this._(status: PCloudDownloadStatus.failed, errorMessage: message);
+
+  final PCloudDownloadStatus status;
+  final int receivedBytes;
+
+  /// Announced transfer size; null when pCloud does not send a length.
+  final int? totalBytes;
+  final PCloudOfflineCopy? copy;
+  final String? errorMessage;
+}
+
+/// Downloads pCloud sounds into [PCloudDownloadStore] and tracks each file's
+/// transfer and offline availability by pCloud file id.
+class PCloudDownloadController extends ChangeNotifier {
+  PCloudDownloadController({
+    required PCloudService service,
+    required PCloudDownloadStore store,
+  }) : _service = service,
+       _store = store;
+
+  final PCloudService _service;
+  final PCloudDownloadStore _store;
+  final Map<String, PCloudDownloadState> _states = {};
+  final Map<String, _ActiveTransfer> _active = {};
+
+  PCloudDownloadState stateOf(AudioSource source) =>
+      _states[source.reference] ?? const PCloudDownloadState.notDownloaded();
+
+  /// The committed local copy of [source], if one is available offline.
+  PCloudOfflineCopy? offlineCopyOf(AudioSource source) => stateOf(source).copy;
+
+  /// Restores copies committed before the app restarted.
+  Future<void> load() async {
+    for (final copy in await _store.load()) {
+      _states[copy.source.reference] = PCloudDownloadState.available(copy);
+    }
+    notifyListeners();
+  }
+
+  /// Starts a transfer unless [source] is already downloading or available;
+  /// a repeated request joins the running transfer.
+  Future<void> download(AudioSource source) {
+    final fileId = source.reference;
+    final running = _active[fileId];
+    if (running != null) return running.done;
+    if (stateOf(source).status == PCloudDownloadStatus.available) {
+      return Future.value();
+    }
+    final active = _active[fileId] = _ActiveTransfer();
+    return active.done = _download(source, active);
+  }
+
+  Future<void> _download(AudioSource source, _ActiveTransfer active) async {
+    final fileId = source.reference;
+    _set(fileId, const PCloudDownloadState.downloading(receivedBytes: 0));
+    try {
+      final transfer = await _service.openDownload(fileId);
+      final copy = await _store.save(
+        source,
+        _tracked(fileId, active.guard(transfer.bytes), transfer.length),
+      );
+      _set(fileId, PCloudDownloadState.available(copy));
+    } on _DownloadCanceled {
+      _states.remove(fileId);
+      notifyListeners();
+    } on FileSystemException catch (error) {
+      debugPrint('pCloud download could not be stored: $error');
+      _set(
+        fileId,
+        PCloudDownloadState.failed(
+          error.osError?.errorCode == _noSpaceLeftOnDevice
+              ? 'Not enough storage to download ${source.displayName}. '
+                    'Free up space and retry.'
+              : 'Could not save ${source.displayName} on this device.',
+        ),
+      );
+    } on PCloudException catch (error) {
+      _set(fileId, PCloudDownloadState.failed(error.message));
+    } on Exception catch (error) {
+      debugPrint('pCloud download transfer failed: $error');
+      _set(
+        fileId,
+        PCloudDownloadState.failed(
+          'Download of ${source.displayName} failed. '
+          'Check your connection and retry.',
+        ),
+      );
+    } finally {
+      _active.remove(fileId);
+    }
+  }
+
+  /// Reports progress and rejects a transfer that ends short or empty, before
+  /// the store can commit it.
+  Stream<List<int>> _tracked(
+    String fileId,
+    Stream<List<int>> bytes,
+    int? length,
+  ) async* {
+    var received = 0;
+    await for (final chunk in bytes) {
+      received += chunk.length;
+      _set(
+        fileId,
+        PCloudDownloadState.downloading(
+          receivedBytes: received,
+          totalBytes: length,
+        ),
+      );
+      yield chunk;
+    }
+    if (received == 0 || (length != null && received != length)) {
+      throw const _IncompleteTransfer();
+    }
+  }
+
+  /// Stops [source]'s transfer at once, even while no bytes are arriving.
+  void cancel(AudioSource source) => _active[source.reference]?.cancel();
+
+  void _set(String fileId, PCloudDownloadState state) {
+    _states[fileId] = state;
+    notifyListeners();
+  }
+}
+
+/// ENOSPC on Android and Linux.
+const _noSpaceLeftOnDevice = 28;
+
+class _IncompleteTransfer implements Exception {
+  const _IncompleteTransfer();
+}
+
+class _DownloadCanceled implements Exception {
+  const _DownloadCanceled();
+}
+
+class _ActiveTransfer {
+  final _canceled = Completer<void>();
+  late final Future<void> done;
+
+  void cancel() {
+    if (!_canceled.isCompleted) _canceled.complete();
+  }
+
+  /// Forwards [bytes] until [cancel], which ends the stream with
+  /// [_DownloadCanceled] and releases the network transfer.
+  Stream<List<int>> guard(Stream<List<int>> bytes) {
+    late final StreamSubscription<List<int>> source;
+    final output = StreamController<List<int>>();
+    output
+      ..onListen = () {
+        source = bytes.listen(
+          output.add,
+          onError: output.addError,
+          onDone: output.close,
+        );
+        _canceled.future.then((_) {
+          if (output.isClosed) return;
+          source.cancel();
+          output
+            ..addError(const _DownloadCanceled())
+            ..close();
+        });
+      }
+      ..onPause = (() => source.pause())
+      ..onResume = (() => source.resume())
+      ..onCancel = (() => source.cancel());
+    return output.stream;
+  }
+}
