@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../../../shared/domain/audio_source.dart';
 import '../../../library/application/local_audio_library.dart';
+import '../../../settings/application/app_settings_controller.dart';
+import '../../../timer/presentation/widgets/bell_dropdown.dart';
 import '../../application/meditation_session_controller.dart';
 
-/// Chooses one imported sound and a duration before starting a session.
+/// Chooses one imported sound, a duration, and the optional ending bell before
+/// starting a session.
 ///
 /// The library is read each time setup appears, so it lists current sounds.
 class SessionSetupView extends StatefulWidget {
@@ -12,10 +15,14 @@ class SessionSetupView extends StatefulWidget {
     super.key,
     required this.session,
     required this.library,
+    required this.appSettings,
   });
 
   final MeditationSessionController session;
   final LocalAudioLibrary library;
+
+  /// Supplies the enabled built-in bells and custom bells to choose from.
+  final AppSettingsController appSettings;
 
   @override
   State<SessionSetupView> createState() => _SessionSetupViewState();
@@ -64,6 +71,25 @@ class _SessionSetupViewState extends State<SessionSetupView> {
                           session.setDuration(Duration(minutes: value.round())),
                     ),
                     Text('${state.duration.inMinutes} minutes'),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      key: const Key('meditate-bell-switch'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Ring a bell at the end'),
+                      value: state.isBellEnabled,
+                      onChanged: session.setBellEnabled,
+                    ),
+                    ListenableBuilder(
+                      listenable: widget.appSettings,
+                      builder: (context, _) => BellDropdown(
+                        selection: state.bell,
+                        builtIns: widget.appSettings.enabledBuiltInBells,
+                        customBells: widget.appSettings.customBells,
+                        onChanged: state.isBellEnabled
+                            ? session.selectBell
+                            : null,
+                      ),
+                    ),
                   ],
                 ),
               ),

@@ -12,6 +12,7 @@ import 'package:my_meditation_app/features/home/presentation/home_screen.dart';
 import 'package:my_meditation_app/features/library/application/local_audio_library.dart';
 import 'package:my_meditation_app/features/player/application/local_audio_playback_controller.dart';
 import 'package:my_meditation_app/features/player/application/playback_source_resolver.dart';
+import 'package:my_meditation_app/features/timer/application/timer_bell_player.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 
 /// Real library files, a fake native player, and a hand-driven clock.
@@ -46,6 +47,7 @@ class _App {
   late final deps = AppDependencies(
     localAudioLibrary: library,
     meditationPlaybackController: LocalAudioPlaybackController(player: audio),
+    meditationBellPlayer: _SilentBellPlayer(),
     clock: () => now,
     pcloudAuthController: PCloudAuthController(store: _StubSessionStore()),
   );
@@ -202,6 +204,35 @@ void main() {
       await app.dispose(tester);
     });
   });
+
+  testWidgets('the ending bell can be switched off', (tester) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      await app.open(tester);
+      await _chooseSound(tester, 'rain.wav');
+      DropdownButtonFormField<String> bellPicker() =>
+          tester.widget(find.byType(DropdownButtonFormField<String>).last);
+      expect(find.text('Bell 1'), findsOneWidget);
+      expect(bellPicker().onChanged, isNotNull);
+
+      await tester.tap(find.byKey(const Key('meditate-bell-switch')));
+      await tester.pump();
+      expect(bellPicker().onChanged, isNull);
+      expect(app.deps.meditationSessionController.state.isBellEnabled, isFalse);
+      await app.dispose(tester);
+    });
+  });
+}
+
+class _SilentBellPlayer implements BellPlayer {
+  @override
+  Future<void> playAsset(String assetPath) async {}
+  @override
+  Future<void> playMedia(PlayableMedia media) async {}
+  @override
+  Future<void> stop() async {}
+  @override
+  void dispose() {}
 }
 
 class _StubSessionStore implements PCloudSessionStore {

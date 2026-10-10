@@ -26,6 +26,7 @@ class MeditateScreen extends StatelessWidget {
                 ? SessionSetupView(
                     session: session,
                     library: deps.localAudioLibrary,
+                    appSettings: deps.appSettingsController,
                   )
                 : ActiveSessionView(session: session),
           ),

@@ -16,6 +16,8 @@ import '../features/playlists/application/playlist_controller.dart';
 import '../features/playlists/infrastructure/shared_preferences_playlist_repository.dart';
 import '../features/settings/application/app_settings_controller.dart';
 import '../features/settings/infrastructure/shared_preferences_app_settings_repository.dart';
+import '../features/timer/application/bell_ringer.dart';
+import '../features/timer/application/timer_bell_player.dart';
 import '../features/timer/infrastructure/shared_preferences_timer_settings_repository.dart';
 
 /// Owns the application's shared, long-lived singletons.
@@ -37,9 +39,11 @@ class AppDependencies {
     required this.playbackSourceResolver,
     LocalAudioPlaybackController? playbackController,
     LocalAudioPlaybackController? meditationPlaybackController,
+    BellPlayer? meditationBellPlayer,
     required this.clock,
   }) : _playbackController = playbackController,
-       _meditationPlaybackController = meditationPlaybackController;
+       _meditationPlaybackController = meditationPlaybackController,
+       _meditationBellPlayer = meditationBellPlayer;
 
   factory AppDependencies({
     PlaylistController? playlistController,
@@ -53,6 +57,7 @@ class AppDependencies {
     PlaybackSourceResolver? playbackSourceResolver,
     LocalAudioPlaybackController? playbackController,
     LocalAudioPlaybackController? meditationPlaybackController,
+    BellPlayer? meditationBellPlayer,
     ElapsedClock? clock,
   }) {
     final library = localAudioLibrary ?? LocalAudioLibrary();
@@ -82,6 +87,7 @@ class AppDependencies {
       pcloudService: service,
       playbackController: playbackController,
       meditationPlaybackController: meditationPlaybackController,
+      meditationBellPlayer: meditationBellPlayer,
       clock: clock ?? _stopwatchClock(),
       timerSettingsRepository:
           timerSettingsRepository ?? SharedPreferencesTimerSettingsRepository(),
@@ -115,6 +121,7 @@ class AppDependencies {
   LocalAudioPlaybackController? _playbackController;
   PlaylistPlaybackController? _playlistPlaybackController;
   LocalAudioPlaybackController? _meditationPlaybackController;
+  final BellPlayer? _meditationBellPlayer;
   MeditationSessionController? _meditationSessionController;
 
   LocalAudioPlaybackController get playbackController => _playbackController ??=
@@ -131,6 +138,10 @@ class AppDependencies {
       _meditationSessionController ??= MeditationSessionController(
         player: _meditationPlaybackController ??= LocalAudioPlaybackController(
           resolver: playbackSourceResolver,
+        ),
+        bell: BellRinger(
+          player: _meditationBellPlayer ?? TimerBellPlayer(),
+          sourceResolver: playbackSourceResolver,
         ),
         ownership: playbackOwnershipController,
         clock: clock,

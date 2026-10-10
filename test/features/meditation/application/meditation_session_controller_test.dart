@@ -9,6 +9,9 @@ import 'package:my_meditation_app/features/player/application/playback_ownership
 import 'package:my_meditation_app/features/player/application/playback_source_resolver.dart';
 import 'package:my_meditation_app/features/playlists/application/playlist_playback_controller.dart';
 import 'package:my_meditation_app/features/playlists/domain/playlist.dart';
+import 'package:my_meditation_app/features/timer/application/bell_ringer.dart';
+import 'package:my_meditation_app/features/timer/application/timer_bell_player.dart';
+import 'package:my_meditation_app/features/timer/domain/bell_selection.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 
 const _rain = AudioSource(
@@ -22,9 +25,14 @@ const _rain = AudioSource(
 class _Harness {
   _Harness(this.async, {PlaybackSourceResolver? resolver, ElapsedClock? clock})
     : audio = _AudioPlayer() {
+    bellPlayer = _BellPlayer(audio.log);
     player = LocalAudioPlaybackController(player: audio, resolver: resolver);
     session = MeditationSessionController(
       player: player,
+      bell: BellRinger(
+        player: bellPlayer,
+        sourceResolver: const LocalPlaybackSourceResolver(),
+      ),
       ownership: ownership,
       clock: clock ?? () => async.elapsed,
     );
@@ -32,6 +40,7 @@ class _Harness {
 
   final FakeAsync async;
   final _AudioPlayer audio;
+  late final _BellPlayer bellPlayer;
   final ownership = PlaybackOwnershipController();
   late final LocalAudioPlaybackController player;
   late final MeditationSessionController session;
@@ -387,6 +396,7 @@ void main() {
   test('the sound fades over the final five active seconds, then stops', () {
     fakeAsync((async) {
       final h = _Harness(async);
+      h.session.setBellEnabled(false);
       h.startWith(_rain, const Duration(minutes: 1));
       expect(h.audio.volume, 1);
       async.elapse(const Duration(seconds: 55));
@@ -443,6 +453,112 @@ void main() {
       h.dispose();
     });
   });
+
+  test('the chosen bell rings once the faded sound has stopped', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      expect(h.session.state.isBellEnabled, isTrue);
+      h.session.selectBell(const BellSelection.builtIn('bell_3'));
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 1));
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(h.audio.log.sublist(h.audio.log.length - 3), [
+        'volume 0.02',
+        'stop',
+        'bell bells/bell_3.mp3',
+      ]);
+      h.dispose();
+    });
+  });
+
+  test('a disabled bell leaves completion silent', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.session.setBellEnabled(false);
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 2));
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(
+        h.audio.log.where((entry) => entry.startsWith('bell bells/')),
+        isEmpty,
+      );
+      h.dispose();
+    });
+  });
+
+  test('a session resumed during the fade rings its bell once', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(seconds: 57));
+      h.session.pause();
+      async.flushMicrotasks();
+      async.elapse(const Duration(minutes: 5));
+      h.session.resume();
+      async.flushMicrotasks();
+      async.elapse(const Duration(minutes: 5));
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(h.audio.log.where((entry) => entry.startsWith('bell bells/')), [
+        'bell bells/bell_1.mp3',
+      ]);
+      h.dispose();
+    });
+  });
+
+  test('a failed bell keeps the session complete and the sound stopped', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.bellPlayer.error = StateError('native bell failed');
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 2));
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(h.session.state.errorMessage, 'Could not play bell_1.');
+      expect(h.audio.loaded, hasLength(1));
+      expect(h.audio.isPlaying, isFalse);
+
+      h.session.end();
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.setup);
+      expect(h.session.state.errorMessage, isNull);
+      h.dispose();
+    });
+  });
+
+  test('Music taking over silences a ringing bell', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      final musicAudio = _AudioPlayer();
+      final musicPlayer = LocalAudioPlaybackController(player: musicAudio);
+      final music = PlaylistPlaybackController(
+        player: musicPlayer,
+        ownership: h.ownership,
+      );
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 1));
+      expect(h.audio.log.last, 'bell bells/bell_1.mp3');
+
+      music.playPlaylist(_playlist());
+      async.flushMicrotasks();
+      expect(h.audio.log.last, 'bell stop');
+      expect(musicAudio.isPlaying, isTrue);
+
+      music.dispose();
+      musicPlayer.dispose();
+      h.dispose();
+    });
+  });
+
+  test('bell and enabled setting are locked once a session starts', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 1));
+      h.session.selectBell(const BellSelection.builtIn('bell_4'));
+      h.session.setBellEnabled(false);
+      async.elapse(const Duration(minutes: 1));
+      expect(h.audio.log.last, 'bell bells/bell_1.mp3');
+      h.dispose();
+    });
+  });
 }
 
 Playlist _playlist() => Playlist(
@@ -456,6 +572,32 @@ Playlist _playlist() => Playlist(
     ),
   ],
 );
+
+/// Records into the session player's log so ordering is observable.
+class _BellPlayer implements BellPlayer {
+  _BellPlayer(this.log);
+
+  final List<String> log;
+  Object? error;
+
+  @override
+  Future<void> playAsset(String assetPath) async {
+    if (error != null) throw error!;
+    log.add('bell $assetPath');
+  }
+
+  @override
+  Future<void> playMedia(PlayableMedia media) async {
+    if (error != null) throw error!;
+    log.add('bell ${media.locator}');
+  }
+
+  @override
+  Future<void> stop() async => log.add('bell stop');
+
+  @override
+  void dispose() {}
+}
 
 class _AudioPlayer implements LocalAudioPlayer {
   final completions = StreamController<bool>.broadcast(sync: true);

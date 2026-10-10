@@ -6,6 +6,8 @@ import '../../../shared/domain/audio_source.dart';
 import '../../player/application/local_audio_playback_controller.dart';
 import '../../player/application/playback_ownership_controller.dart';
 import '../../player/domain/queue_entry.dart';
+import '../../timer/application/bell_ringer.dart';
+import '../../timer/domain/bell_selection.dart';
 
 /// Monotonic time since an arbitrary origin; only differences are meaningful.
 typedef ElapsedClock = Duration Function();
@@ -16,18 +18,26 @@ class MeditationSessionState {
   const MeditationSessionState({
     required this.status,
     required this.duration,
+    required this.bell,
+    required this.isBellEnabled,
     this.sound,
     this.errorMessage,
   });
 
   final MeditationSessionStatus status;
   final Duration duration;
+
+  /// Rings after the sound stops when [isBellEnabled].
+  final BellSelection bell;
+  final bool isBellEnabled;
   final AudioSource? sound;
   final String? errorMessage;
 
   MeditationSessionState copyWith({
     MeditationSessionStatus? status,
     Duration? duration,
+    BellSelection? bell,
+    bool? isBellEnabled,
     AudioSource? sound,
     String? errorMessage,
     bool clearError = false,
@@ -35,6 +45,8 @@ class MeditationSessionState {
     return MeditationSessionState(
       status: status ?? this.status,
       duration: duration ?? this.duration,
+      bell: bell ?? this.bell,
+      isBellEnabled: isBellEnabled ?? this.isBellEnabled,
       sound: sound ?? this.sound,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
     );
@@ -48,9 +60,11 @@ class MeditationSessionState {
 class MeditationSessionController extends ChangeNotifier {
   MeditationSessionController({
     required LocalAudioPlaybackController player,
+    required BellRinger bell,
     required PlaybackOwnershipController ownership,
     required ElapsedClock clock,
   }) : _player = player,
+       _bell = bell,
        _ownership = ownership,
        _clock = clock {
     _player.addListener(_onPlayerChanged);
@@ -67,12 +81,15 @@ class MeditationSessionController extends ChangeNotifier {
   static const Duration _fadeStep = Duration(milliseconds: 100);
 
   final LocalAudioPlaybackController _player;
+  final BellRinger _bell;
   final PlaybackOwnershipController _ownership;
   final ElapsedClock _clock;
 
-  MeditationSessionState _state = const MeditationSessionState(
+  MeditationSessionState _state = MeditationSessionState(
     status: MeditationSessionStatus.setup,
-    duration: Duration(minutes: 20),
+    duration: const Duration(minutes: 20),
+    bell: builtInBells.first.toSelection(),
+    isBellEnabled: true,
   );
   Duration _activeElapsed = Duration.zero;
   Duration? _countingSince;
@@ -106,6 +123,16 @@ class MeditationSessionController extends ChangeNotifier {
     if (!_isSetup) return;
     final minutes = duration.inMinutes.clamp(minMinutes, maxMinutes);
     _setState(_state.copyWith(duration: Duration(minutes: minutes)));
+  }
+
+  void selectBell(BellSelection bell) {
+    if (!_isSetup) return;
+    _setState(_state.copyWith(bell: bell));
+  }
+
+  void setBellEnabled(bool enabled) {
+    if (!_isSetup) return;
+    _setState(_state.copyWith(isBellEnabled: enabled));
   }
 
   Future<void> start() {
@@ -178,9 +205,10 @@ class MeditationSessionController extends ChangeNotifier {
     }
   }
 
-  Future<void> end() {
+  /// Also silences a ringing bell, so another mode never sounds over it.
+  Future<void> end() async {
     _returnToSetup();
-    return _player.stop();
+    await Future.wait([_player.stop(), _bell.stop()]);
   }
 
   void _returnToSetup({String? errorMessage}) {
@@ -191,6 +219,7 @@ class MeditationSessionController extends ChangeNotifier {
       _state.copyWith(
         status: MeditationSessionStatus.setup,
         errorMessage: errorMessage,
+        clearError: errorMessage == null,
       ),
     );
   }
@@ -258,7 +287,24 @@ class MeditationSessionController extends ChangeNotifier {
     if (remaining > Duration.zero) return;
     _stopCounting();
     _setState(_state.copyWith(status: MeditationSessionStatus.completed));
-    unawaited(_player.stop());
+    unawaited(_stopThenRingBell(_entry!));
+  }
+
+  Future<void> _stopThenRingBell(QueueEntry entry) async {
+    await _player.stop();
+    if (!_state.isBellEnabled) return;
+    bool isCurrent() => !_disposed && identical(_entry, entry);
+    final bell = _state.bell;
+    try {
+      await _bell.ring(bell, canRun: isCurrent);
+    } catch (_) {
+      // Only the bell failed: the session stays complete and its sound off.
+      if (isCurrent()) {
+        _setState(
+          _state.copyWith(errorMessage: 'Could not play ${bell.displayName}.'),
+        );
+      }
+    }
   }
 
   void _setState(MeditationSessionState state) {
@@ -274,6 +320,11 @@ class MeditationSessionController extends ChangeNotifier {
     _refresh?.cancel();
     _fade?.cancel();
     _player.removeListener(_onPlayerChanged);
+    unawaited(
+      _bell.dispose().catchError((Object error) {
+        debugPrint('Meditate bell disposal failed (${error.runtimeType}).');
+      }),
+    );
     _ownership.forget(this);
     super.dispose();
   }
