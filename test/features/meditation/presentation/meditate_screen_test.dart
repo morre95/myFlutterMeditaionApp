@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/app/app_dependencies.dart';
 import 'package:my_meditation_app/app/app_scope.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_download_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_session_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/domain/pcloud_config.dart';
 import 'package:my_meditation_app/features/home/presentation/home_screen.dart';
@@ -54,6 +55,9 @@ class _App {
     localAudioLibrary: library,
     meditationPlaybackController: LocalAudioPlaybackController(player: audio),
     meditationBellPlayer: _SilentBellPlayer(),
+    pcloudDownloadStore: PCloudDownloadStore(
+      directory: Directory('${root.path}/pcloud_downloads'),
+    ),
     clock: () => now,
     pcloudAuthController: PCloudAuthController(store: _StubSessionStore()),
   );
