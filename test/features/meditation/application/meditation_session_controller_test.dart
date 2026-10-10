@@ -383,6 +383,66 @@ void main() {
       h.dispose();
     });
   });
+
+  test('the sound fades over the final five active seconds, then stops', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 1));
+      expect(h.audio.volume, 1);
+      async.elapse(const Duration(seconds: 55));
+      expect(h.audio.volume, 1);
+
+      async.elapse(const Duration(milliseconds: 2500));
+      expect(h.audio.volume, closeTo(0.5, 0.001));
+      expect(h.audio.isPlaying, isTrue);
+
+      async.elapse(const Duration(milliseconds: 2500));
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(h.audio.log.last, 'stop');
+      final lastVolume = h.audio.log[h.audio.log.length - 2];
+      expect(lastVolume, 'volume 0.02');
+      h.dispose();
+    });
+  });
+
+  test('pausing during the fade holds volume and remaining time', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(seconds: 57));
+      h.session.pause();
+      async.flushMicrotasks();
+      async.elapse(const Duration(hours: 1));
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      expect(h.session.remaining, const Duration(seconds: 3));
+      expect(h.audio.volume, closeTo(0.6, 0.001));
+
+      h.session.resume();
+      async.flushMicrotasks();
+      async.elapse(const Duration(milliseconds: 1500));
+      expect(h.audio.volume, closeTo(0.3, 0.001));
+      async.elapse(const Duration(minutes: 1));
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(h.audio.log.where((entry) => entry == 'stop'), hasLength(1));
+      h.dispose();
+    });
+  });
+
+  test('the next session starts at full volume after a faded one', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 1));
+      h.session.end();
+      async.flushMicrotasks();
+
+      h.session.start();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isTrue);
+      expect(h.audio.volume, 1);
+      h.dispose();
+    });
+  });
 }
 
 Playlist _playlist() => Playlist(
@@ -403,6 +463,10 @@ class _AudioPlayer implements LocalAudioPlayer {
   final durations = StreamController<Duration>.broadcast();
   final loaded = <String>[];
   bool isPlaying = false;
+  double volume = 0.2;
+
+  /// Volume changes and stops, in order.
+  final log = <String>[];
   Completer<void>? loadReady;
   Completer<void>? pauseReady;
   Object? loadError;
@@ -430,7 +494,16 @@ class _AudioPlayer implements LocalAudioPlayer {
   @override
   Future<void> seek(Duration position) async {}
   @override
-  Future<void> stop() async => isPlaying = false;
+  Future<void> stop() async {
+    isPlaying = false;
+    log.add('stop');
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {
+    this.volume = volume;
+    log.add('volume ${volume.toStringAsFixed(2)}');
+  }
 
   void finishTrack() {
     isPlaying = false;

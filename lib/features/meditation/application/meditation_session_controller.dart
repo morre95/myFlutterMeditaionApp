@@ -62,6 +62,10 @@ class MeditationSessionController extends ChangeNotifier {
   /// Shorter play-throughs cannot loop without reloading continuously.
   static const Duration minimumPlayThrough = Duration(seconds: 1);
 
+  /// The sound fades out over this much final active time.
+  static const Duration fadeDuration = Duration(seconds: 5);
+  static const Duration _fadeStep = Duration(milliseconds: 100);
+
   final LocalAudioPlaybackController _player;
   final PlaybackOwnershipController _ownership;
   final ElapsedClock _clock;
@@ -74,6 +78,7 @@ class MeditationSessionController extends ChangeNotifier {
   Duration? _countingSince;
   Timer? _deadline;
   Timer? _refresh;
+  Timer? _fade;
   QueueEntry? _entry;
   Duration _playThroughStart = Duration.zero;
   Future<void>? _pendingPause;
@@ -125,7 +130,11 @@ class MeditationSessionController extends ChangeNotifier {
     return _ownership.run(
       owner: this,
       deactivate: end,
-      action: () => _player.play(entry),
+      action: () async {
+        // A previous session may have ended faded out.
+        await _player.setVolume(1);
+        await _player.play(entry);
+      },
       canRun: () => !_disposed && identical(_entry, entry),
     );
   }
@@ -224,11 +233,23 @@ class MeditationSessionController extends ChangeNotifier {
       _checkDeadline();
       if (_countingSince != null) notifyListeners();
     });
+    // Volume follows remaining active time, so a paused fade resumes in place.
+    final untilFade = remaining - fadeDuration;
+    _fade = Timer(untilFade > Duration.zero ? untilFade : Duration.zero, () {
+      _applyFade();
+      _fade = Timer.periodic(_fadeStep, (_) => _applyFade());
+    });
+  }
+
+  void _applyFade() {
+    final level = remaining.inMicroseconds / fadeDuration.inMicroseconds;
+    unawaited(_player.setVolume(level.clamp(0.0, 1.0)));
   }
 
   void _stopCounting() {
     _deadline?.cancel();
     _refresh?.cancel();
+    _fade?.cancel();
     _activeElapsed = _state.duration - remaining;
     _countingSince = null;
   }
@@ -251,6 +272,7 @@ class MeditationSessionController extends ChangeNotifier {
     _disposed = true;
     _deadline?.cancel();
     _refresh?.cancel();
+    _fade?.cancel();
     _player.removeListener(_onPlayerChanged);
     _ownership.forget(this);
     super.dispose();

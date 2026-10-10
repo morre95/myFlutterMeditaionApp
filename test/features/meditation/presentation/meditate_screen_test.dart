@@ -254,4 +254,7 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
     unawaited(_positions.close());
     unawaited(_durations.close());
   }
+
+  @override
+  Future<void> setVolume(double volume) async {}
 }
