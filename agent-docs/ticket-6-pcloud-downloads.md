@@ -67,3 +67,19 @@ which keeps #5's Meditate selection browser unchanged.
 `PCloudPlaybackSourceResolver` now requires `downloads:`; callers merged from
 #5 (its Meditate screen test) must pass one. No physical Android download,
 ENOSPC, or airplane-mode playback was run; ticket #11 owns device acceptance.
+
+Review fixes (`ticket/6-review-fixes`, PR #19 review): cancel now acts in
+every phase. It drops the transfer from the in-flight map and resets the row
+to "Not downloaded" at once, even while `getfilelink`/the GET is still
+pending; the abandoned transfer's late results go through `_settle`, which
+ignores a canceled transfer, and a late response stream is cancelled by
+`guard`. Download after such a cancel starts a fresh transfer.
+`PCloudDownloadStore.load()` catches `FileSystemException` around listing
+(logged, no copies) and per entry, including staging removal (logged, entry
+skipped), so storage errors cost offline copies, never startup. Controller
+`dispose()` cancels in-flight transfers so nothing notifies afterwards.
+Progress notifies only when `PCloudDownloadState.progressPercent` (whole
+percent, shared with the row's display) changes; unknown-length transfers
+notify only on start and completion. Tests: pending-request cancel (late
+response, late failure), unlistable directory and undeletable staging (via
+`chmod`), dispose mid-transfer, and notification counts.
