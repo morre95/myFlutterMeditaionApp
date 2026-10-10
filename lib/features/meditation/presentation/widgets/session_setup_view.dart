@@ -9,7 +9,8 @@ import '../../application/meditation_session_controller.dart';
 /// Chooses one imported sound, a duration, and the optional ending bell before
 /// starting a session.
 ///
-/// The library is read each time setup appears, so it lists current sounds.
+/// The library is read each time setup appears, so it lists current sounds and
+/// revalidates the remembered one before Start.
 class SessionSetupView extends StatefulWidget {
   const SessionSetupView({
     super.key,
@@ -56,6 +57,18 @@ class _SessionSetupViewState extends State<SessionSetupView> {
                       selected: selected,
                       onSelected: session.selectSound,
                     ),
+                    if (snapshot.hasData &&
+                        state.sound != null &&
+                        selected == null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '${state.sound!.displayName} is no longer available. '
+                        'Choose another sound.',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     const Text('Duration (minutes)'),
                     Slider(
@@ -97,7 +110,14 @@ class _SessionSetupViewState extends State<SessionSetupView> {
             const SizedBox(height: 16),
             Center(
               child: FilledButton(
-                onPressed: selected == null ? null : session.start,
+                onPressed: selected == null
+                    ? null
+                    : () {
+                        // Play the library's current copy, never a
+                        // remembered locator that may have moved.
+                        session.selectSound(selected);
+                        session.start();
+                      },
                 child: const Text('Start'),
               ),
             ),

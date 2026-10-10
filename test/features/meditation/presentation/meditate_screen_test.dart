@@ -10,9 +10,12 @@ import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_sessi
 import 'package:my_meditation_app/features/cloud/pcloud/domain/pcloud_config.dart';
 import 'package:my_meditation_app/features/home/presentation/home_screen.dart';
 import 'package:my_meditation_app/features/library/application/local_audio_library.dart';
+import 'package:my_meditation_app/features/meditation/domain/meditation_settings.dart';
+import 'package:my_meditation_app/features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
 import 'package:my_meditation_app/features/player/application/local_audio_playback_controller.dart';
 import 'package:my_meditation_app/features/player/application/playback_source_resolver.dart';
 import 'package:my_meditation_app/features/timer/application/timer_bell_player.dart';
+import 'package:my_meditation_app/features/timer/domain/bell_selection.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -257,6 +260,52 @@ void main() {
         find.byKey(const Key('meditate-bell-switch')),
       );
       expect(bellSwitch.value, isFalse);
+      await tester.tap(find.text('Start'));
+      await _pumpUntil(tester, find.text('Pause'));
+      expect(app.audio.loadedPath, app.sound!.reference);
+      await app.dispose(tester);
+    });
+  });
+
+  testWidgets('a remembered sound that is gone explains why Start is off', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      await app.open(tester);
+      await _chooseSound(tester, 'rain.wav');
+      await File(app.sound!.reference).parent.delete(recursive: true);
+
+      await app.relaunch(tester);
+      await _pumpUntil(
+        tester,
+        find.text('rain.wav is no longer available. Choose another sound.'),
+      );
+      final start = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Start'),
+      );
+      expect(start.onPressed, isNull);
+      await app.dispose(tester);
+    });
+  });
+
+  testWidgets('Start plays the library copy of a remembered sound', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      await app.open(tester);
+      await SharedPreferencesMeditationSettingsRepository().save(
+        MeditationSettings(
+          sound: app.sound!.copyWith(reference: '/moved/audio.wav'),
+          duration: const Duration(minutes: 20),
+          bell: const BellSelection.builtIn('bell_1'),
+          isBellEnabled: true,
+        ),
+      );
+
+      await app.relaunch(tester);
+      await _pumpUntil(tester, find.text('rain.wav'));
       await tester.tap(find.text('Start'));
       await _pumpUntil(tester, find.text('Pause'));
       expect(app.audio.loadedPath, app.sound!.reference);
