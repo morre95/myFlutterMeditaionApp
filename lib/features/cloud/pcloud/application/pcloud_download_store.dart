@@ -47,44 +47,55 @@ class PCloudDownloadStore {
       'audio${path.extension(source.displayName).toLowerCase()}';
 
   /// Lists complete copies and removes staging left by interrupted transfers.
+  ///
+  /// A storage failure only costs the affected offline copies: an unreadable
+  /// download directory yields none, and an unreadable entry is skipped.
   Future<List<PCloudOfflineCopy>> load() async {
-    final root = await _root();
     final copies = <PCloudOfflineCopy>[];
-    await for (final entry in root.list()) {
-      if (entry is! Directory) continue;
-      if (path.basename(entry.path).startsWith('.')) {
-        await entry.delete(recursive: true);
-        continue;
+    try {
+      final root = await _root();
+      await for (final entry in root.list()) {
+        if (entry is! Directory) continue;
+        final copy = await _loadEntry(entry);
+        if (copy != null) copies.add(copy);
       }
-      try {
-        final json =
-            jsonDecode(
-                  await File(
-                    path.join(entry.path, 'sound.json'),
-                  ).readAsString(),
-                )
-                as Map<String, dynamic>;
-        final source = AudioSource.fromJson(json);
-        final audio = File(path.join(entry.path, _audioName(source)));
-        if (source.kind != AudioSourceKind.pCloud ||
-            path.basename(entry.path) != source.reference ||
-            !await audio.exists() ||
-            await audio.length() != source.storedSize) {
-          continue;
-        }
-        copies.add(PCloudOfflineCopy(source: source, path: audio.path));
-      } catch (error) {
-        if (error is! FileSystemException &&
-            error is! FormatException &&
-            error is! TypeError) {
-          rethrow;
-        }
-        debugPrint(
-          'Skipped unavailable pCloud download (${error.runtimeType}).',
-        );
-      }
+    } on FileSystemException catch (error) {
+      debugPrint('pCloud downloads could not be listed: $error');
     }
     return copies;
+  }
+
+  /// The complete copy in [entry], or null after removing staging or skipping
+  /// an incomplete or unreadable copy.
+  Future<PCloudOfflineCopy?> _loadEntry(Directory entry) async {
+    try {
+      if (path.basename(entry.path).startsWith('.')) {
+        await entry.delete(recursive: true);
+        return null;
+      }
+      final json =
+          jsonDecode(
+                await File(path.join(entry.path, 'sound.json')).readAsString(),
+              )
+              as Map<String, dynamic>;
+      final source = AudioSource.fromJson(json);
+      final audio = File(path.join(entry.path, _audioName(source)));
+      if (source.kind != AudioSourceKind.pCloud ||
+          path.basename(entry.path) != source.reference ||
+          !await audio.exists() ||
+          await audio.length() != source.storedSize) {
+        return null;
+      }
+      return PCloudOfflineCopy(source: source, path: audio.path);
+    } catch (error) {
+      if (error is! FileSystemException &&
+          error is! FormatException &&
+          error is! TypeError) {
+        rethrow;
+      }
+      debugPrint('Skipped pCloud download entry ${entry.path}: $error');
+      return null;
+    }
   }
 
   /// Writes [bytes] as the offline copy of [source] and commits it.

@@ -302,6 +302,40 @@ void main() {
       ]);
     },
   );
+
+  group('restart when the download directory is not fully accessible', () {
+    Future<void> setMode(String mode) async {
+      final result = await Process.run('chmod', [mode, root.path]);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+    }
+
+    test('starts with no offline copies when it cannot be listed', () async {
+      await setMode('000');
+      addTearDown(() => setMode('700'));
+
+      final restarted = controller();
+      await restarted.load();
+
+      expect(restarted.offlineCopyOf(_rain), isNull);
+    });
+
+    test('keeps committed copies when staging cannot be removed', () async {
+      final downloads = controller();
+      final download = downloads.download(_rain);
+      final transfer = await cloud.nextTransfer();
+      transfer.add([1, 2, 3, 4]);
+      await transfer.close();
+      await download;
+      await Directory('${root.path}/.200-interrupted').create();
+      await setMode('500');
+      addTearDown(() => setMode('700'));
+
+      final restarted = controller();
+      await restarted.load();
+
+      expect(restarted.stateOf(_rain).status, PCloudDownloadStatus.available);
+    });
+  });
 }
 
 /// pCloud API whose file transfers are fed chunk by chunk by the test.
