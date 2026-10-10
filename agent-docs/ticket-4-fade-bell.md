@@ -62,3 +62,18 @@ fade test disables the bell so the log ends with `stop`. Built-in bell failure
 text uses `BellSelection.displayName`, which is the id (`bell_1`), as in Timer.
 Audible fade smoothness and bell playback on a physical Android device are not
 verified here; ticket #11 owns device acceptance.
+
+Review fixes (`ticket/4-review-fixes`): the bell setup shows and the bell
+completion rings now come from one rule, `availableBell` in
+`bell_selection.dart` (the choice while Settings still offers it, else the
+first enabled built-in). `BellDropdown` and
+`AppSettingsController.availableBellFor` both use it, and Meditate's
+`MeditationSessionController.bell` (the controller now takes `appSettings`)
+is what setup displays and `_stopThenRingBell` rings. `state.bell` stays the
+remembered choice, like a remembered sound, so re-adding or re-enabling that
+bell restores it. Timer still rings its raw `settings.bell` because
+`TimerController` has no `AppSettingsController`: a removed or disabled Timer
+bell shows the fallback but rings the stale choice. That gap predates this
+ticket and is left out of it. A failed volume reset at Start returns to setup
+with "Could not play <sound>." like a play failure; a failed fade step is
+logged and the session still ends at its deadline. Full suite: 187 passed.
