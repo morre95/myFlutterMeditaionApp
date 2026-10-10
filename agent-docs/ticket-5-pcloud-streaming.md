@@ -26,4 +26,6 @@ Controller coverage includes initial loading/stalls, native failure with fresh U
 
 No physical Android/network run was performed. Position-based accounting is conservative: unreported sub-poll audio at a loop boundary is not inferred from duration metadata. The watchdog is a fallback for the package's missing buffering signal, not a claim of a native buffering event. Native notification streams do not carry load generation IDs; generation checks protect asynchronous commands/resolution, and nonplaying position events are ignored.
 
-Final validation: `flutter test --no-pub` — 191 passed; `flutter analyze --no-pub` — no issues; `dart format` and `git diff --check` clean.
+Final validation: `flutter test --no-pub` — 195 passed after merging integration review fixes (191 passed before merge); `flutter analyze --no-pub` — no issues; `dart format` and `git diff --check` clean.
+
+Integration refresh: merged 353a9eb into the ticket branch, retaining the concurrent #4 bell-fallback, initial-volume-error and fade-error fixes. Merge conflicts combined the volume-preparation identity guard and both native fake controls.
