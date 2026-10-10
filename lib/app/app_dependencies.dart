@@ -1,3 +1,8 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
+import '../features/meditation/infrastructure/meditation_background_audio.dart';
 import '../features/library/application/local_audio_library.dart';
 import '../features/meditation/application/meditation_session_controller.dart';
 import '../features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
@@ -141,6 +146,15 @@ class AppDependencies {
   LocalAudioPlaybackController? _meditationPlaybackController;
   final BellPlayer? _meditationBellPlayer;
   MeditationSessionController? _meditationSessionController;
+  MeditationBackgroundAudio? _backgroundAudio;
+
+  Future<void> initBackgroundAudio() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      _backgroundAudio = await MeditationBackgroundAudio.init(
+        meditationSessionController,
+      );
+    }
+  }
 
   LocalAudioPlaybackController get playbackController => _playbackController ??=
       LocalAudioPlaybackController(resolver: playbackSourceResolver);
@@ -157,15 +171,26 @@ class AppDependencies {
       _meditationSessionController ??= MeditationSessionController(
         player: _meditationPlaybackController ??= LocalAudioPlaybackController(
           resolver: playbackSourceResolver,
+          player: AudioPlayersLocalPlayer(
+            manageAudioFocus:
+                kIsWeb || defaultTargetPlatform != TargetPlatform.android,
+          ),
         ),
         bell: BellRinger(
-          player: _meditationBellPlayer ?? TimerBellPlayer(),
+          player:
+              _meditationBellPlayer ??
+              TimerBellPlayer(
+                manageAudioFocus:
+                    kIsWeb || defaultTargetPlatform != TargetPlatform.android,
+              ),
           sourceResolver: playbackSourceResolver,
         ),
         repository: meditationSettingsRepository,
         ownership: playbackOwnershipController,
         appSettings: appSettingsController,
         clock: clock,
+        acquireAudioFocus: () async =>
+            await _backgroundAudio?.acquireFocus() ?? true,
         history: historyController,
       );
 
@@ -183,6 +208,12 @@ class AppDependencies {
   }
 
   void dispose() {
+    final backgroundAudio = _backgroundAudio;
+    if (backgroundAudio != null) {
+      unawaited(
+        meditationSessionController.end().whenComplete(backgroundAudio.dispose),
+      );
+    }
     _playlistPlaybackController?.dispose();
     _playbackController?.dispose();
     _meditationSessionController?.dispose();
