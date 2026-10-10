@@ -29,3 +29,13 @@ No physical Android/network run was performed. Position-based accounting is cons
 Final validation: `flutter test --no-pub` — 195 passed after merging integration review fixes (191 passed before merge); `flutter analyze --no-pub` — no issues; `dart format` and `git diff --check` clean.
 
 Integration refresh: merged 353a9eb into the ticket branch, retaining the concurrent #4 bell-fallback, initial-volume-error and fade-error fixes. Merge conflicts combined the volume-preparation identity guard and both native fake controls.
+
+## Final review fixes
+
+The public controller seam reproduced rejected native Stop during interruption: it previously rejected the unawaited pending recovery future, left native audio sounding, and could strand Resume in loading. Recovery now requests a native Pause fallback when Stop fails. The fallback is guarded by the playback generation so obsolete cleanup cannot pause newer audio. If both native commands fail, recovery catches the failure, leaves progress paused, and displays `Could not silence the sound. Resume to try again.` instead of producing an unhandled future. Resume clicked before that failure settles returns to paused and can be explicitly tried again; it does not remain stuck loading.
+
+A second controller test covers both rejected silence commands with Resume already waiting. Controlled resolver-only scenarios now verify initial Start failure, retry failure after active progress, successful explicit recovery with a fresh source and saved seek, and an obsolete failed resolution arriving after End/new session. Those resolver scenarios passed with the existing generation/error handling, so no additional production change was necessary for them.
+
+Polling limits: 200ms is the configured TimerPositionUpdater interval, not a guaranteed audible-time accuracy or response bound. Native position precision, plugin/OS scheduling and command latency can delay reports and silence. Unreported audio at pause/loop boundaries is conservatively omitted; the five-second watchdog is the nominal gap threshold, not a guarantee that native audio stops exactly at five seconds. No real-device measurement was performed.
+
+Review-fix validation: `flutter test --no-pub` — 199 passed; `flutter analyze --no-pub` — no issues; formatting and `git diff --check` clean. The first full run exposed an extra async yield in the enhanced native Stop fake that changed an existing bell log-order assertion; the fake now waits only when a delayed Stop is configured, and the controller suite plus final full suite pass.

@@ -136,10 +136,27 @@ class MeditationSessionController extends ChangeNotifier {
         errorMessage: message,
       ),
     );
+    final entry = _entry;
     late final Future<void> pending;
-    pending = _player.stop().whenComplete(() {
-      if (identical(_pendingPause, pending)) _pendingPause = null;
-    });
+    pending = _player
+        .stop(pauseOnFailure: true)
+        .catchError((Object error) {
+          debugPrint(
+            'Meditate recovery could not silence audio (${error.runtimeType}).',
+          );
+          if (!_disposed && identical(_entry, entry)) {
+            _setState(
+              _state.copyWith(
+                status: MeditationSessionStatus.paused,
+                errorMessage:
+                    'Could not silence the sound. Resume to try again.',
+              ),
+            );
+          }
+        })
+        .whenComplete(() {
+          if (identical(_pendingPause, pending)) _pendingPause = null;
+        });
     _pendingPause = pending;
   }
 

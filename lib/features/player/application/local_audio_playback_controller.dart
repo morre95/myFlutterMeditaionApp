@@ -252,14 +252,24 @@ class LocalAudioPlaybackController extends ChangeNotifier {
   Future<void> setVolume(double volume) =>
       _playerCommands.run(() => _player.setVolume(volume));
 
-  Future<void> stop() async {
+  /// Invalidates pending playback. Recovery can request native Pause as a
+  /// fallback if Stop fails, without pausing a newer playback generation.
+  Future<void> stop({bool pauseOnFailure = false}) async {
     if (_disposed) {
       await _disposal;
       return;
     }
-    _playbackGeneration++;
+    final generation = ++_playbackGeneration;
     _setState(const LocalAudioPlaybackState.idle());
-    await _playerCommands.run(_player.stop);
+    try {
+      await _playerCommands.run(_player.stop);
+    } catch (_) {
+      if (!pauseOnFailure) rethrow;
+      await _playerCommands.run(
+        _player.pause,
+        canRun: () => _isCurrent(generation),
+      );
+    }
   }
 
   bool _isCurrent(int generation) =>
