@@ -79,6 +79,294 @@ class _Harness {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('stream loading and stalled positions consume no meditation time', () {
+    fakeAsync((async) {
+      final h = _Harness(async, resolver: _StreamResolver());
+      h.startWith(_cloud, const Duration(minutes: 1));
+      expect(h.session.state.status, MeditationSessionStatus.loading);
+      async.elapse(const Duration(seconds: 2));
+      expect(h.session.remaining, const Duration(minutes: 1));
+      h.audio.positions.add(const Duration(seconds: 2));
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.running);
+      expect(h.session.remaining, const Duration(seconds: 58));
+      async.elapse(const Duration(seconds: 10));
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      expect(h.session.remaining, const Duration(seconds: 58));
+      expect(h.audio.isPlaying, isFalse);
+      h.dispose();
+    });
+  });
+
+  test('stream failure preserves progress and Resume seeks a fresh source', () {
+    fakeAsync((async) {
+      final resolver = _StreamResolver();
+      final h = _Harness(async, resolver: resolver);
+      h.startWith(_cloud, const Duration(minutes: 1));
+      h.audio.positions.add(const Duration(seconds: 12));
+      async.flushMicrotasks();
+      h.audio.durations.addError(StateError('network failed'));
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      expect(h.audio.isPlaying, isFalse);
+      async.elapse(const Duration(minutes: 1));
+      expect(h.session.remaining, const Duration(seconds: 48));
+      h.session.resume();
+      async.flushMicrotasks();
+      expect(h.audio.loaded, [
+        'https://stream.example/1',
+        'https://stream.example/2',
+      ]);
+      expect(h.audio.seekPosition, const Duration(seconds: 12));
+      expect(h.session.state.sound!.reference, '42');
+      expect(h.session.remaining, const Duration(seconds: 48));
+      h.audio.positions.add(const Duration(seconds: 14));
+      async.flushMicrotasks();
+      expect(h.session.remaining, const Duration(seconds: 46));
+      h.dispose();
+    });
+  });
+
+  test('stream retry finishing after End cannot replace a new session', () {
+    fakeAsync((async) {
+      final resolver = _StreamResolver();
+      final h = _Harness(async, resolver: resolver);
+      h.startWith(_cloud, const Duration(minutes: 1));
+      h.audio.positions.add(const Duration(seconds: 7));
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 5));
+      resolver.pending = Completer<PlayableMedia>();
+      h.session.resume();
+      async.flushMicrotasks();
+      h.session.resume();
+      h.session.end();
+      async.flushMicrotasks();
+      h.startWith(_rain, const Duration(minutes: 2));
+      resolver.pending!.complete(
+        const PlayableMedia.url('https://expired.example/old'),
+      );
+      async.flushMicrotasks();
+      expect(h.session.state.sound!.id, _rain.id);
+      expect(h.session.remaining, const Duration(minutes: 2));
+      expect(h.audio.loaded, ['https://stream.example/1', _rain.reference]);
+      expect(h.audio.isPlaying, isTrue);
+      h.dispose();
+    });
+  });
+
+  test('stream repeats without counting an unplayed declared tail', () {
+    fakeAsync((async) {
+      final h = _Harness(async, resolver: _StreamResolver());
+      h.startWith(_cloud, const Duration(minutes: 1));
+      h.audio.durations.add(const Duration(seconds: 40));
+      h.audio.positions.add(const Duration(seconds: 10));
+      async.flushMicrotasks();
+      h.audio.finishTrack();
+      async.flushMicrotasks();
+      expect(h.session.remaining, const Duration(seconds: 50));
+      expect(h.session.state.status, MeditationSessionStatus.loading);
+      h.audio.positions.add(const Duration(seconds: 50));
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(h.audio.isPlaying, isFalse);
+      h.dispose();
+    });
+  });
+
+  test('End during volume preparation cannot start a stale stream', () {
+    fakeAsync((async) {
+      final h = _Harness(async, resolver: _StreamResolver());
+      h.audio.volumeReady = Completer<void>();
+      h.startWith(_cloud, const Duration(minutes: 1));
+      h.session.end();
+      h.audio.volumeReady!.complete();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isFalse);
+      expect(h.audio.loaded, isEmpty);
+      expect(h.session.state.status, MeditationSessionStatus.setup);
+      h.dispose();
+    });
+  });
+
+  test('a failed native Pause silences the stream and keeps progress', () {
+    fakeAsync((async) {
+      final h = _Harness(async, resolver: _StreamResolver());
+      h.startWith(_cloud, const Duration(minutes: 1));
+      h.audio.positions.add(const Duration(seconds: 9));
+      async.flushMicrotasks();
+      h.audio.pauseError = StateError('pause rejected');
+      h.session.pause();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isFalse);
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      expect(h.session.remaining, const Duration(seconds: 51));
+      expect(h.session.state.errorMessage, isNotNull);
+      h.dispose();
+    });
+  });
+
+  test(
+    'Resume waits for pending native Pause before counting stream positions',
+    () {
+      fakeAsync((async) {
+        final h = _Harness(async, resolver: _StreamResolver());
+        h.startWith(_cloud, const Duration(minutes: 1));
+        h.audio.positions.add(const Duration(seconds: 9));
+        async.flushMicrotasks();
+        h.audio.pauseReady = Completer<void>();
+        h.session.pause();
+        async.flushMicrotasks();
+        h.session.resume();
+        h.audio.positions.add(const Duration(seconds: 10));
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.loading);
+        expect(h.session.remaining, const Duration(seconds: 51));
+        h.audio.pauseReady!.complete();
+        async.flushMicrotasks();
+        expect(h.audio.seekPosition, const Duration(seconds: 9));
+        expect(h.audio.isPlaying, isTrue);
+        h.audio.positions.add(const Duration(seconds: 11));
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.running);
+        expect(h.session.remaining, const Duration(seconds: 49));
+        h.dispose();
+      });
+    },
+  );
+
+  test(
+    'a rejected recovery Stop falls back to Pause and explicit Resume continues',
+    () {
+      fakeAsync((async) {
+        final h = _Harness(async, resolver: _StreamResolver());
+        h.startWith(_cloud, const Duration(minutes: 1));
+        h.audio.positions.add(const Duration(seconds: 9));
+        async.flushMicrotasks();
+        h.audio.stopError = StateError('stop rejected');
+        h.audio.durations.addError(StateError('stream failed'));
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.paused);
+        expect(h.audio.isPlaying, isFalse);
+        expect(h.session.remaining, const Duration(seconds: 51));
+        h.session.resume();
+        async.flushMicrotasks();
+        h.audio.positions.add(const Duration(seconds: 11));
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.running);
+        expect(h.session.remaining, const Duration(seconds: 49));
+        h.audio.stopError = null;
+        h.dispose();
+      });
+    },
+  );
+
+  test(
+    'failed Stop and Pause show inability to silence without stranding Resume',
+    () {
+      fakeAsync((async) {
+        final h = _Harness(async, resolver: _StreamResolver());
+        h.startWith(_cloud, const Duration(minutes: 1));
+        h.audio.positions.add(const Duration(seconds: 9));
+        async.flushMicrotasks();
+        h.audio.stopReady = Completer<void>();
+        h.audio.stopError = StateError('stop rejected');
+        h.audio.pauseError = StateError('pause rejected');
+        async.elapse(const Duration(seconds: 5));
+        h.session.resume();
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.loading);
+        h.audio.stopReady!.complete();
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.paused);
+        expect(
+          h.session.state.errorMessage,
+          'Could not silence the sound. Resume to try again.',
+        );
+        expect(h.session.remaining, const Duration(seconds: 51));
+        h.audio.stopError = null;
+        h.audio.pauseError = null;
+        h.session.resume();
+        async.flushMicrotasks();
+        h.audio.positions.add(const Duration(seconds: 11));
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.running);
+        expect(h.session.remaining, const Duration(seconds: 49));
+        h.dispose();
+      });
+    },
+  );
+
+  test(
+    'resolver failures on Start and retry pause until explicit fresh recovery',
+    () {
+      fakeAsync((async) {
+        final resolver = _StreamResolver()
+          ..pending = Completer<PlayableMedia>();
+        final h = _Harness(async, resolver: resolver);
+        h.startWith(_cloud, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 30));
+        expect(h.session.state.status, MeditationSessionStatus.loading);
+        expect(h.session.remaining, const Duration(minutes: 1));
+        resolver.pending!.completeError(StateError('expired authentication'));
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.paused);
+        expect(h.session.state.errorMessage, 'Could not play Cloud rain.');
+        expect(h.audio.isPlaying, isFalse);
+        resolver.pending = null;
+        h.session.resume();
+        async.flushMicrotasks();
+        h.audio.positions.add(const Duration(seconds: 6));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 5));
+        expect(h.session.remaining, const Duration(seconds: 54));
+        resolver.pending = Completer<PlayableMedia>();
+        h.session.resume();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 30));
+        expect(h.session.state.status, MeditationSessionStatus.loading);
+        expect(h.session.remaining, const Duration(seconds: 54));
+        resolver.pending!.completeError(StateError('network unavailable'));
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.paused);
+        expect(h.session.remaining, const Duration(seconds: 54));
+        expect(h.audio.isPlaying, isFalse);
+        resolver.pending = null;
+        h.session.resume();
+        async.flushMicrotasks();
+        expect(h.audio.loaded, [
+          'https://stream.example/1',
+          'https://stream.example/2',
+        ]);
+        expect(h.audio.seekPosition, const Duration(seconds: 6));
+        h.audio.positions.add(const Duration(seconds: 8));
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.running);
+        expect(h.session.remaining, const Duration(seconds: 52));
+        h.dispose();
+      });
+    },
+  );
+
+  test('late failed resolution after End cannot interrupt a new session', () {
+    fakeAsync((async) {
+      final resolver = _StreamResolver()..pending = Completer<PlayableMedia>();
+      final h = _Harness(async, resolver: resolver);
+      h.startWith(_cloud, const Duration(minutes: 1));
+      h.session.end();
+      async.flushMicrotasks();
+      h.startWith(_rain, const Duration(minutes: 2));
+      resolver.pending!.completeError(StateError('obsolete cloud failure'));
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.running);
+      expect(h.session.state.errorMessage, isNull);
+      expect(h.session.state.sound!.id, _rain.id);
+      expect(h.session.remaining, const Duration(minutes: 2));
+      expect(h.audio.loaded, [_rain.reference]);
+      expect(h.audio.isPlaying, isTrue);
+      h.dispose();
+    });
+  });
+
   test('setup starts at 20 minutes and keeps durations within 1-120', () {
     fakeAsync((async) {
       final h = _Harness(async);
@@ -727,7 +1015,11 @@ class _AudioPlayer implements LocalAudioPlayer {
   final log = <String>[];
   Completer<void>? loadReady;
   Completer<void>? pauseReady;
+  Completer<void>? volumeReady;
+  Completer<void>? stopReady;
   Object? loadError;
+  Object? pauseError;
+  Object? stopError;
   Object? volumeError;
   @override
   Stream<bool> get completedStream => completions.stream;
@@ -747,19 +1039,27 @@ class _AudioPlayer implements LocalAudioPlayer {
   @override
   Future<void> pause() async {
     await pauseReady?.future;
+    if (pauseError != null) throw pauseError!;
     isPlaying = false;
   }
 
+  Duration? seekPosition;
   @override
-  Future<void> seek(Duration position) async {}
+  Future<void> seek(Duration position) async {
+    seekPosition = position;
+  }
+
   @override
   Future<void> stop() async {
+    if (stopReady != null) await stopReady!.future;
+    if (stopError != null) throw stopError!;
     isPlaying = false;
     log.add('stop');
   }
 
   @override
   Future<void> setVolume(double volume) async {
+    await volumeReady?.future;
     if (volumeError != null) throw volumeError!;
     this.volume = volume;
     log.add('volume ${volume.toStringAsFixed(2)}');
@@ -777,4 +1077,23 @@ class _AudioPlayer implements LocalAudioPlayer {
     unawaited(positions.close());
     unawaited(durations.close());
   }
+}
+
+const _cloud = AudioSource(
+  id: 'pcloud:42',
+  kind: AudioSourceKind.pCloud,
+  displayName: 'Cloud rain',
+  reference: '42',
+);
+
+class _StreamResolver implements PlaybackSourceResolver {
+  int links = 0;
+  Completer<PlayableMedia>? pending;
+  @override
+  Future<PlayableMedia> resolve(AudioSource source) async =>
+      source.kind == AudioSourceKind.localFile
+      ? PlayableMedia.file(source.reference)
+      : pending != null
+      ? pending!.future
+      : PlayableMedia.url('https://stream.example/${++links}');
 }

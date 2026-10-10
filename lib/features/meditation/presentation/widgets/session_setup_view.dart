@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../../shared/domain/audio_source.dart';
+import '../../../cloud/pcloud/application/pcloud_auth_controller.dart';
+import '../../../cloud/pcloud/application/pcloud_service.dart';
+import '../../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
+import '../../../library/presentation/pcloud_browser_screen.dart';
 import '../../../library/application/local_audio_library.dart';
 import '../../../settings/application/app_settings_controller.dart';
 import '../../../timer/presentation/widgets/bell_dropdown.dart';
@@ -17,10 +21,14 @@ class SessionSetupView extends StatefulWidget {
     required this.session,
     required this.library,
     required this.appSettings,
+    required this.cloudAuth,
+    required this.cloudService,
   });
 
   final MeditationSessionController session;
   final LocalAudioLibrary library;
+  final PCloudAuthController cloudAuth;
+  final PCloudService cloudService;
 
   /// Supplies the enabled built-in bells and custom bells to choose from.
   final AppSettingsController appSettings;
@@ -32,6 +40,32 @@ class SessionSetupView extends StatefulWidget {
 class _SessionSetupViewState extends State<SessionSetupView> {
   late final Future<List<AudioSource>> _sounds = widget.library.loadSounds();
 
+  Future<void> _chooseCloud() async {
+    if (!widget.cloudAuth.isConnected) {
+      final error = await connectToPCloud(context, widget.cloudAuth);
+      if (!mounted) return;
+      if (error != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
+      }
+      if (!widget.cloudAuth.isConnected) return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (browserContext) => PCloudBrowserScreen(
+          service: widget.cloudService,
+          selectionMode: true,
+          onAddFile: (sound) async {
+            widget.session.selectSound(sound);
+            Navigator.of(browserContext).pop();
+            return true;
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = widget.session;
@@ -40,9 +74,11 @@ class _SessionSetupViewState extends State<SessionSetupView> {
       future: _sounds,
       builder: (context, snapshot) {
         final available = snapshot.data ?? const <AudioSource>[];
-        final selected = available
-            .where((sound) => sound.id == state.sound?.id)
-            .firstOrNull;
+        final selected = state.sound?.kind == AudioSourceKind.pCloud
+            ? state.sound
+            : available
+                  .where((sound) => sound.id == state.sound?.id)
+                  .firstOrNull;
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -54,9 +90,18 @@ class _SessionSetupViewState extends State<SessionSetupView> {
                   children: [
                     _SoundPicker(
                       snapshot: snapshot,
-                      selected: selected,
+                      selected: selected?.kind == AudioSourceKind.localFile
+                          ? selected
+                          : null,
                       onSelected: session.selectSound,
                     ),
+                    TextButton.icon(
+                      onPressed: _chooseCloud,
+                      icon: const Icon(Icons.cloud_outlined),
+                      label: const Text('Choose from pCloud'),
+                    ),
+                    if (selected?.kind == AudioSourceKind.pCloud)
+                      Text(selected!.displayName),
                     if (snapshot.hasData &&
                         state.sound != null &&
                         selected == null) ...[

@@ -55,6 +55,7 @@ class AppDependencies {
     HistoryController? historyController,
     FavoritesController? favoritesController,
     PCloudAuthController? pcloudAuthController,
+    PCloudService? pcloudService,
     TimerSettingsRepository? timerSettingsRepository,
     MeditationSettingsRepository? meditationSettingsRepository,
     PlaybackSourceResolver? playbackSourceResolver,
@@ -65,7 +66,7 @@ class AppDependencies {
   }) {
     final library = localAudioLibrary ?? LocalAudioLibrary();
     final auth = pcloudAuthController ?? PCloudAuthController();
-    final service = PCloudService(session: auth);
+    final service = pcloudService ?? PCloudService(session: auth);
     return AppDependencies._(
       localAudioLibrary: library,
       localAudioPicker:
