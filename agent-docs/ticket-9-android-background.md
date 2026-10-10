@@ -71,20 +71,68 @@ only native audio, source resolution and time. TDD red/green observed for:
 Additional regression checks cover focus denial, latest Resume winning over an
 older delayed focus result, active-time preservation and existing streamed-source
 recovery/looping/fade/bell/ownership behavior. Final test/analyze results are
-recorded in the implementation handoff. Full suite: 210 tests passed; session/
-handler suite: 55 tests passed. `flutter analyze`: no issues after final formatting.
+recorded in the implementation handoff. Final full suite: 212 tests passed.
+`flutter analyze`: no issues after final formatting.
 `git diff --check`: clean.
 
 ## Physical release evidence
 
-Pending parent verification on SM-S921B / Android 16 API 36. No physical-device
-claim is made by the implementer. Required checks: local 90-second sound and
-4-second looping sound in a one-minute session, navigating away, screen locked
-through the deadline, notification and supported lock-screen controls, genuine
-call interruption and headphone disconnection, no auto-resume, explicit background
-Resume and silence after End, plus release networking/manifest/resource inspection.
-Prepared fixtures: `/tmp/meditation-issue-9-evidence/issue9-long-90s.wav` and
-`issue9-loop-4s.wav`. Parent owns device interaction and evidence capture.
+Physical QA uses a Galaxy S24 (SM-S921B), Android 16 / API 36. Final release
+APK at code merge `92c19a8` has SHA256
+`9a6c2826b7c4962ddc6dac5a0aad6a1d80373f147f02e2c724f014ba09d3d115`.
+Main release manifest permissions and retained transport icons were inspected
+in the APK; DEBUGGABLE is absent. INTERNET is in the main manifest.
+
+Local low-volume WAV fixtures (90 seconds and a 4-second loop) were imported
+into a separate `Issue9Verification` playlist. User confirmed the long tone
+continued with the screen off, and confirmed both looping tone and Bell 1 at
+completion. Long-source deadline native timestamps differ by 60.060 seconds.
+Loop source completes at position 60000; loop reloads exclude their brief native
+loading time. Foreground service and partial CPU wakelock remain through bell
+playback and are released afterward in the final release.
+
+Final-release lock-screen Pause freezes position at 36307 ms; a snapshot 26.884
+seconds later has the same position. Pause releases foreground status and the
+partial wakelock. Actual lock-screen Resume restores playing, foreground status
+and the partial wakelock without a foreground-start exception.
+
+Evidence captures are in `/tmp/meditation-issue-9-evidence`: `long-*.json`,
+`controls-paused-ack.json`, `controls-paused-later.json`,
+`controls-resumed.json`, and `loop-bell-*.json`. Samples show screen wake changes
+during the loop run; this is not claimed as uninterrupted screen-off timing.
+User confirmed audible screen-off playback and ending bell. At the loop deadline,
+position stays 60000 with playing=true/speed=0 and the CPU lock retained through
+the bell; native idle follows 3.256 seconds later and releases protection.
+
+Headphone disconnection: user confirmed silence and no automatic Resume. An
+intermediate playing observation was explained by the user's explicit Resume.
+After disconnecting again, `headphone-followup-state.json` and
+`headphone-final-paused.json` both show PAUSED at 230701 ms, 10.776 seconds apart,
+without foreground status or a partial CPU wakelock. Headphone connection type
+was not recorded. This verifies actual disconnection, silence and stopped
+accounting; automated interruption-end tests cover no automatic Resume.
+
+Lock-screen End was repeated successfully by the user. `end-user-confirmed.json`
+shows media active=false, NONE(0), position=0, startRequested=false, no foreground
+status and no partial CPU wakelock. Subsequent Play/Pause/Play commands through
+`cmd media_session monitor media-session` targeted meditation specifically and
+left that exact ended state unchanged (`end-stale-controls.json`), without
+starting another app or a new session. Earlier screen taps were missed while
+dozing or used a mismatched Samsung card layout; those earlier attempts are not
+claimed as successful End evidence.
+
+Android notification-panel controls were exercised separately on the final
+release: Pause yielded PAUSED at 36817 ms, Resume yielded PLAYING from the same
+36817 ms with foreground/CPU protection restored, and End yielded inactive
+NONE(0), position=0 with the service stopped and no CPU lock. Evidence:
+`notification-pause.json`, `notification-resume.json`, `notification-end.json`.
+
+Genuine incoming-call verification remains pending because the
+user has no second phone available. No simulated interruption is presented as
+physical call evidence. Keep PR #18 draft until the remaining physical acceptance
+checks are complete. Final independent code review approved `92c19a8` with no
+new actionable findings.
+Parent owns device interaction and evidence capture.
 
 ## Independent review fix: ending bell lifetime
 
