@@ -167,6 +167,16 @@ class PCloudDownloadController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Cancels in-flight transfers so none reports after disposal.
+  @override
+  void dispose() {
+    for (final active in _active.values) {
+      active.cancel();
+    }
+    _active.clear();
+    super.dispose();
+  }
+
   /// Records [state] unless [active] was canceled.
   void _settle(
     String fileId,

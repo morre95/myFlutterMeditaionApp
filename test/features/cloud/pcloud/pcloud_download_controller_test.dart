@@ -164,6 +164,22 @@ void main() {
     });
   });
 
+  test('dispose stops in-flight transfers without later updates', () async {
+    final downloads = controller();
+    final download = downloads.download(_rain);
+    final transfer = await cloud.nextTransfer();
+    transfer.add([1, 2]);
+    await pumpEventQueue();
+
+    downloads.dispose();
+    transfer.add([3, 4]);
+    await transfer.close();
+    await download;
+
+    expect(transfer.isCanceled, isTrue);
+    expect(await root.list().toList(), isEmpty);
+  });
+
   group(
     'a failed transfer reports why, leaves no copy, and can be retried',
     () {
