@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/features/meditation/application/meditation_session_controller.dart';
+import 'package:my_meditation_app/features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
 import 'package:my_meditation_app/features/player/application/local_audio_playback_controller.dart';
 import 'package:my_meditation_app/features/player/application/playback_ownership_controller.dart';
 import 'package:my_meditation_app/features/player/application/playback_source_resolver.dart';
@@ -13,6 +14,7 @@ import 'package:my_meditation_app/features/timer/application/bell_ringer.dart';
 import 'package:my_meditation_app/features/timer/application/timer_bell_player.dart';
 import 'package:my_meditation_app/features/timer/domain/bell_selection.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const _rain = AudioSource(
   id: 'import:rain',
@@ -33,6 +35,7 @@ class _Harness {
         player: bellPlayer,
         sourceResolver: const LocalPlaybackSourceResolver(),
       ),
+      repository: SharedPreferencesMeditationSettingsRepository(),
       ownership: ownership,
       clock: clock ?? () => async.elapsed,
     );
@@ -60,6 +63,8 @@ class _Harness {
 }
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   test('setup starts at 20 minutes and keeps durations within 1-120', () {
     fakeAsync((async) {
       final h = _Harness(async);
@@ -557,6 +562,52 @@ void main() {
       async.elapse(const Duration(minutes: 1));
       expect(h.audio.log.last, 'bell bells/bell_1.mp3');
       h.dispose();
+    });
+  });
+
+  test('sound, duration, bell, and bell setting are remembered', () {
+    fakeAsync((async) {
+      final first = _Harness(async);
+      first.session.selectSound(_rain);
+      first.session.setDuration(const Duration(minutes: 7));
+      first.session.selectBell(const BellSelection.builtIn('bell_2'));
+      first.session.setBellEnabled(false);
+      async.flushMicrotasks();
+      first.dispose();
+
+      final next = _Harness(async);
+      next.session.load();
+      async.flushMicrotasks();
+      final state = next.session.state;
+      expect(state.sound!.id, _rain.id);
+      expect(state.sound!.displayName, 'rain.wav');
+      expect(state.duration, const Duration(minutes: 7));
+      expect(state.bell.name, 'bell_2');
+      expect(state.isBellEnabled, isFalse);
+      next.dispose();
+    });
+  });
+
+  test('a custom bell choice is remembered', () {
+    fakeAsync((async) {
+      const gong = AudioSource(
+        id: 'local:/bells/gong.mp3',
+        kind: AudioSourceKind.localFile,
+        displayName: 'gong.mp3',
+        reference: '/bells/gong.mp3',
+      );
+      final first = _Harness(async);
+      first.session.selectBell(const BellSelection.custom(gong));
+      async.flushMicrotasks();
+      first.dispose();
+
+      final next = _Harness(async);
+      next.session.load();
+      async.flushMicrotasks();
+      expect(next.session.state.bell.source!.id, gong.id);
+      expect(next.session.state.sound, isNull);
+      expect(next.session.state.duration, const Duration(minutes: 20));
+      next.dispose();
     });
   });
 }

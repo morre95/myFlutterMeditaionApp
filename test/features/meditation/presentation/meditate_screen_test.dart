@@ -14,6 +14,7 @@ import 'package:my_meditation_app/features/player/application/local_audio_playba
 import 'package:my_meditation_app/features/player/application/playback_source_resolver.dart';
 import 'package:my_meditation_app/features/timer/application/timer_bell_player.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Real library files, a fake native player, and a hand-driven clock.
 class _App {
@@ -42,9 +43,11 @@ class _App {
   final Directory root;
   final LocalAudioLibrary library;
   final AudioSource? sound;
-  final audio = _FakeLocalAudioPlayer();
+  var audio = _FakeLocalAudioPlayer();
   var now = Duration.zero;
-  late final deps = AppDependencies(
+  late AppDependencies deps = _launch();
+
+  AppDependencies _launch() => AppDependencies(
     localAudioLibrary: library,
     meditationPlaybackController: LocalAudioPlaybackController(player: audio),
     meditationBellPlayer: _SilentBellPlayer(),
@@ -65,7 +68,21 @@ class _App {
     await tester.pump(const Duration(seconds: 1));
   }
 
+  /// Closes the app and starts it again on the same storage.
+  Future<void> relaunch(WidgetTester tester) async {
+    await _close(tester);
+    audio = _FakeLocalAudioPlayer();
+    deps = _launch();
+    await deps.init();
+    await open(tester);
+  }
+
   Future<void> dispose(WidgetTester tester) async {
+    await _close(tester);
+    await root.delete(recursive: true);
+  }
+
+  Future<void> _close(WidgetTester tester) async {
     // Setup re-reads the library whenever it appears; let that read finish.
     await _pumpUntil(
       tester,
@@ -74,7 +91,6 @@ class _App {
     );
     await tester.pumpWidget(const SizedBox.shrink());
     deps.dispose();
-    await root.delete(recursive: true);
   }
 }
 
@@ -100,6 +116,8 @@ Future<void> _chooseSound(WidgetTester tester, String name) async {
 }
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('setup offers imported sounds, 20 minutes, and a 1-120 range', (
     tester,
   ) async {
@@ -219,6 +237,29 @@ void main() {
       await tester.pump();
       expect(bellPicker().onChanged, isNull);
       expect(app.deps.meditationSessionController.state.isBellEnabled, isFalse);
+      await app.dispose(tester);
+    });
+  });
+
+  testWidgets('a relaunch restores the last sound and bell setting', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      await app.open(tester);
+      await _chooseSound(tester, 'rain.wav');
+      await tester.tap(find.byKey(const Key('meditate-bell-switch')));
+      await tester.pump();
+
+      await app.relaunch(tester);
+      await _pumpUntil(tester, find.text('rain.wav'));
+      final bellSwitch = tester.widget<SwitchListTile>(
+        find.byKey(const Key('meditate-bell-switch')),
+      );
+      expect(bellSwitch.value, isFalse);
+      await tester.tap(find.text('Start'));
+      await _pumpUntil(tester, find.text('Pause'));
+      expect(app.audio.loadedPath, app.sound!.reference);
       await app.dispose(tester);
     });
   });

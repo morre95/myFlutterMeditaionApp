@@ -1,5 +1,6 @@
 import '../features/library/application/local_audio_library.dart';
 import '../features/meditation/application/meditation_session_controller.dart';
+import '../features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
 import '../features/library/application/local_wav_picker_service.dart';
 import '../features/cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../features/cloud/pcloud/application/pcloud_playback_source_resolver.dart';
@@ -36,6 +37,7 @@ class AppDependencies {
     required this.pcloudAuthController,
     required this.pcloudService,
     required this.timerSettingsRepository,
+    required this.meditationSettingsRepository,
     required this.playbackSourceResolver,
     LocalAudioPlaybackController? playbackController,
     LocalAudioPlaybackController? meditationPlaybackController,
@@ -54,6 +56,7 @@ class AppDependencies {
     FavoritesController? favoritesController,
     PCloudAuthController? pcloudAuthController,
     TimerSettingsRepository? timerSettingsRepository,
+    MeditationSettingsRepository? meditationSettingsRepository,
     PlaybackSourceResolver? playbackSourceResolver,
     LocalAudioPlaybackController? playbackController,
     LocalAudioPlaybackController? meditationPlaybackController,
@@ -91,6 +94,9 @@ class AppDependencies {
       clock: clock ?? _stopwatchClock(),
       timerSettingsRepository:
           timerSettingsRepository ?? SharedPreferencesTimerSettingsRepository(),
+      meditationSettingsRepository:
+          meditationSettingsRepository ??
+          SharedPreferencesMeditationSettingsRepository(),
       playbackSourceResolver:
           playbackSourceResolver ??
           PCloudPlaybackSourceResolver(service: service),
@@ -111,6 +117,7 @@ class AppDependencies {
   final PCloudAuthController pcloudAuthController;
   final PCloudService pcloudService;
   final TimerSettingsRepository timerSettingsRepository;
+  final MeditationSettingsRepository meditationSettingsRepository;
   final PlaybackSourceResolver playbackSourceResolver;
 
   /// Monotonic time for measuring active session time.
@@ -143,6 +150,7 @@ class AppDependencies {
           player: _meditationBellPlayer ?? TimerBellPlayer(),
           sourceResolver: playbackSourceResolver,
         ),
+        repository: meditationSettingsRepository,
         ownership: playbackOwnershipController,
         clock: clock,
       );
@@ -155,6 +163,7 @@ class AppDependencies {
       historyController.load(),
       favoritesController.load(),
       pcloudAuthController.loadStoredSession(),
+      meditationSessionController.load(),
     ]);
   }
 

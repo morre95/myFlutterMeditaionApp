@@ -8,6 +8,8 @@ import '../../player/application/playback_ownership_controller.dart';
 import '../../player/domain/queue_entry.dart';
 import '../../timer/application/bell_ringer.dart';
 import '../../timer/domain/bell_selection.dart';
+import '../domain/meditation_settings.dart';
+import '../infrastructure/shared_preferences_meditation_settings_repository.dart';
 
 /// Monotonic time since an arbitrary origin; only differences are meaningful.
 typedef ElapsedClock = Duration Function();
@@ -61,10 +63,12 @@ class MeditationSessionController extends ChangeNotifier {
   MeditationSessionController({
     required LocalAudioPlaybackController player,
     required BellRinger bell,
+    required MeditationSettingsRepository repository,
     required PlaybackOwnershipController ownership,
     required ElapsedClock clock,
   }) : _player = player,
        _bell = bell,
+       _repository = repository,
        _ownership = ownership,
        _clock = clock {
     _player.addListener(_onPlayerChanged);
@@ -82,6 +86,7 @@ class MeditationSessionController extends ChangeNotifier {
 
   final LocalAudioPlaybackController _player;
   final BellRinger _bell;
+  final MeditationSettingsRepository _repository;
   final PlaybackOwnershipController _ownership;
   final ElapsedClock _clock;
 
@@ -99,6 +104,7 @@ class MeditationSessionController extends ChangeNotifier {
   QueueEntry? _entry;
   Duration _playThroughStart = Duration.zero;
   Future<void>? _pendingPause;
+  Future<void> _lastSave = Future<void>.value();
   bool _disposed = false;
 
   MeditationSessionState get state => _state;
@@ -114,25 +120,51 @@ class MeditationSessionController extends ChangeNotifier {
 
   bool get _isSetup => _state.status == MeditationSessionStatus.setup;
 
-  void selectSound(AudioSource sound) {
-    if (!_isSetup) return;
-    _setState(_state.copyWith(sound: sound));
+  /// Restores the last choices. Call once at startup.
+  Future<void> load() async {
+    final saved = await _repository.load();
+    if (saved == null || !_isSetup) return;
+    _setState(
+      _state.copyWith(
+        sound: saved.sound,
+        duration: _withinRange(saved.duration),
+        bell: saved.bell,
+        isBellEnabled: saved.isBellEnabled,
+      ),
+    );
   }
 
-  void setDuration(Duration duration) {
-    if (!_isSetup) return;
-    final minutes = duration.inMinutes.clamp(minMinutes, maxMinutes);
-    _setState(_state.copyWith(duration: Duration(minutes: minutes)));
-  }
+  void selectSound(AudioSource sound) =>
+      _changeSetup(_state.copyWith(sound: sound));
 
-  void selectBell(BellSelection bell) {
-    if (!_isSetup) return;
-    _setState(_state.copyWith(bell: bell));
-  }
+  void setDuration(Duration duration) =>
+      _changeSetup(_state.copyWith(duration: _withinRange(duration)));
 
-  void setBellEnabled(bool enabled) {
+  void selectBell(BellSelection bell) =>
+      _changeSetup(_state.copyWith(bell: bell));
+
+  void setBellEnabled(bool enabled) =>
+      _changeSetup(_state.copyWith(isBellEnabled: enabled));
+
+  static Duration _withinRange(Duration duration) =>
+      Duration(minutes: duration.inMinutes.clamp(minMinutes, maxMinutes));
+
+  /// Choices are locked once a session starts; each one is remembered.
+  void _changeSetup(MeditationSessionState next) {
     if (!_isSetup) return;
-    _setState(_state.copyWith(isBellEnabled: enabled));
+    _setState(next);
+    final settings = MeditationSettings(
+      sound: next.sound,
+      duration: next.duration,
+      bell: next.bell,
+      isBellEnabled: next.isBellEnabled,
+    );
+    // Concurrent saves can land out of order; chaining keeps the latest last.
+    _lastSave = _lastSave.then((_) => _repository.save(settings)).catchError((
+      Object error,
+    ) {
+      debugPrint('Could not remember Meditate choices (${error.runtimeType}).');
+    });
   }
 
   Future<void> start() {
