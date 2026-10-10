@@ -59,6 +59,9 @@ class MeditationSessionController extends ChangeNotifier {
   static const int minMinutes = 1;
   static const int maxMinutes = 120;
 
+  /// Shorter play-throughs cannot loop without reloading continuously.
+  static const Duration minimumPlayThrough = Duration(seconds: 1);
+
   final LocalAudioPlaybackController _player;
   final PlaybackOwnershipController _ownership;
   final ElapsedClock _clock;
@@ -72,6 +75,8 @@ class MeditationSessionController extends ChangeNotifier {
   Timer? _deadline;
   Timer? _refresh;
   QueueEntry? _entry;
+  Duration _playThroughStart = Duration.zero;
+  Future<void>? _pendingPause;
   bool _disposed = false;
 
   MeditationSessionState get state => _state;
@@ -104,6 +109,7 @@ class MeditationSessionController extends ChangeNotifier {
       return Future<void>.value();
     }
     _activeElapsed = Duration.zero;
+    _playThroughStart = Duration.zero;
     final entry = QueueEntry(
       id: sound.id,
       source: sound,
@@ -131,19 +137,36 @@ class MeditationSessionController extends ChangeNotifier {
     if (_countingSince != null) _stopCounting();
     _setState(_state.copyWith(status: MeditationSessionStatus.paused));
     // Stopping a repeat reload keeps a paused session silent.
-    return _player.state.status == LocalPlaybackStatus.playing
-        ? _player.pause()
-        : _player.stop();
+    late final Future<void> pending;
+    pending =
+        (_player.state.status == LocalPlaybackStatus.playing
+                ? _player.pause()
+                : _player.stop())
+            .whenComplete(() {
+              if (identical(_pendingPause, pending)) _pendingPause = null;
+            });
+    _pendingPause = pending;
+    return pending;
   }
 
-  Future<void> resume() {
-    if (_state.status != MeditationSessionStatus.paused) {
-      return Future<void>.value();
+  Future<void> resume() async {
+    final entry = _entry;
+    if (entry == null || _state.status != MeditationSessionStatus.paused) {
+      return;
     }
     _setState(_state.copyWith(status: MeditationSessionStatus.running));
-    return _player.state.status == LocalPlaybackStatus.paused
-        ? _player.resume()
-        : _player.play(_entry!);
+    // Decide how to continue only once the native pause has landed.
+    await _pendingPause;
+    if (_state.status != MeditationSessionStatus.running ||
+        !identical(_entry, entry)) {
+      return;
+    }
+    if (_player.state.status == LocalPlaybackStatus.paused) {
+      await _player.resume();
+    } else {
+      _playThroughStart = _activeElapsed;
+      await _player.play(entry);
+    }
   }
 
   Future<void> end() {
@@ -170,12 +193,21 @@ class MeditationSessionController extends ChangeNotifier {
       return;
     }
     switch (_player.state.status) {
-      case LocalPlaybackStatus.playing when _countingSince == null:
+      case LocalPlaybackStatus.playing
+          when _countingSince == null && _pendingPause == null:
         _setState(_state.copyWith(status: MeditationSessionStatus.running));
         _startCounting();
       case LocalPlaybackStatus.completed when _countingSince != null:
         // A sound shorter than the session repeats; the reload is not counted.
         _stopCounting();
+        if (_activeElapsed - _playThroughStart < minimumPlayThrough) {
+          _returnToSetup(
+            errorMessage:
+                '${_state.sound!.displayName} is too short to repeat.',
+          );
+          return;
+        }
+        _playThroughStart = _activeElapsed;
         unawaited(_player.play(_entry!));
       case LocalPlaybackStatus.error:
         // Without audio there is no session, so nothing may count down.

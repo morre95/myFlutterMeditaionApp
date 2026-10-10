@@ -328,6 +328,61 @@ void main() {
       h.dispose();
     });
   });
+
+  test('Resume before the native pause settles keeps the position', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 10));
+      async.elapse(const Duration(minutes: 4));
+      h.audio.pauseReady = Completer<void>();
+      h.session.pause();
+      async.flushMicrotasks();
+      h.session.resume();
+      h.audio.positions.add(const Duration(minutes: 4));
+      async.flushMicrotasks();
+      async.elapse(const Duration(minutes: 1));
+      h.audio.pauseReady!.complete();
+      async.flushMicrotasks();
+      expect(h.audio.loaded, hasLength(1));
+      expect(h.audio.isPlaying, isTrue);
+      expect(h.session.state.status, MeditationSessionStatus.running);
+      async.elapse(const Duration(minutes: 1));
+      expect(h.session.remaining, const Duration(minutes: 5));
+      h.dispose();
+    });
+  });
+
+  test('a near-zero-length sound ends the session instead of reloading', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 10));
+      async.elapse(const Duration(milliseconds: 200));
+      h.audio.finishTrack();
+      async.flushMicrotasks();
+      expect(h.audio.loaded, hasLength(1));
+      expect(h.session.state.status, MeditationSessionStatus.setup);
+      expect(h.session.state.errorMessage, 'rain.wav is too short to repeat.');
+      h.dispose();
+    });
+  });
+
+  test('a play-through split by Pause still repeats normally', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 10));
+      async.elapse(const Duration(minutes: 1));
+      h.session.pause();
+      async.flushMicrotasks();
+      h.session.resume();
+      async.flushMicrotasks();
+      async.elapse(const Duration(milliseconds: 200));
+      h.audio.finishTrack();
+      async.flushMicrotasks();
+      expect(h.audio.loaded, hasLength(2));
+      expect(h.session.state.status, MeditationSessionStatus.running);
+      h.dispose();
+    });
+  });
 }
 
 Playlist _playlist() => Playlist(
@@ -349,6 +404,7 @@ class _AudioPlayer implements LocalAudioPlayer {
   final loaded = <String>[];
   bool isPlaying = false;
   Completer<void>? loadReady;
+  Completer<void>? pauseReady;
   Object? loadError;
   @override
   Stream<bool> get completedStream => completions.stream;
@@ -366,7 +422,11 @@ class _AudioPlayer implements LocalAudioPlayer {
   @override
   Future<void> play() async => isPlaying = true;
   @override
-  Future<void> pause() async => isPlaying = false;
+  Future<void> pause() async {
+    await pauseReady?.future;
+    isPlaying = false;
+  }
+
   @override
   Future<void> seek(Duration position) async {}
   @override

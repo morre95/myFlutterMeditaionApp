@@ -20,7 +20,18 @@ or missing ticks can end an overdue session but never extend it. Shorter sounds
 repeat by reloading the same entry on completion; the reload gap is not counted.
 Pause during that reload stops instead of pausing, and Resume reloads, so a
 paused session is never audible. Player errors return to setup with the error
-message, so no countdown exists without audio. Duration and sound are locked
+message, so no countdown exists without audio.
+
+Review fixes: Resume waits for an in-flight native pause before choosing between
+native resume and reload, and counting cannot start while that pause is pending,
+so a quick Pause/Resume keeps the position. Repeat rule: each play-through must
+contribute at least `minimumPlayThrough` (1 s) of active time, measured across
+pauses within that play-through; a shorter one ends the session with
+"<name> is too short to repeat." instead of reloading endlessly (zero-length
+files would otherwise spin because reload time is not counted). The countdown
+display rounds partial seconds up, so it never skips from 20:00 to 19:58 on
+drifting refresh ticks or shows 00:00 while sound still plays; Timer's whole
+seconds are unaffected. Duration and sound are locked
 once a session starts. Completion shows "Session complete" with Done; fade, bell,
 history, pCloud and device acceptance remain for #4, #5, #8 and #11.
 
