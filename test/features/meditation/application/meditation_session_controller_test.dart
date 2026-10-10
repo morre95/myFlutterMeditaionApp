@@ -651,6 +651,18 @@ void main() {
       h.dispose();
     });
   });
+
+  test('a failed volume reset returns to setup with an error', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.audio.volumeError = StateError('native volume failed');
+      h.startWith(_rain, const Duration(minutes: 1));
+      expect(h.session.state.status, MeditationSessionStatus.setup);
+      expect(h.session.state.errorMessage, 'Could not play rain.wav.');
+      expect(h.audio.isPlaying, isFalse);
+      h.dispose();
+    });
+  });
 }
 
 Playlist _playlist() => Playlist(
@@ -704,6 +716,7 @@ class _AudioPlayer implements LocalAudioPlayer {
   Completer<void>? loadReady;
   Completer<void>? pauseReady;
   Object? loadError;
+  Object? volumeError;
   @override
   Stream<bool> get completedStream => completions.stream;
   @override
@@ -735,6 +748,7 @@ class _AudioPlayer implements LocalAudioPlayer {
 
   @override
   Future<void> setVolume(double volume) async {
+    if (volumeError != null) throw volumeError!;
     this.volume = volume;
     log.add('volume ${volume.toStringAsFixed(2)}');
   }

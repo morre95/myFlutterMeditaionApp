@@ -201,7 +201,18 @@ class MeditationSessionController extends ChangeNotifier {
       deactivate: end,
       action: () async {
         // A previous session may have ended faded out.
-        await _player.setVolume(1);
+        try {
+          await _player.setVolume(1);
+        } catch (error) {
+          // Fails like a play failure: no session without audible sound.
+          debugPrint('Meditate volume reset failed (${error.runtimeType}).');
+          if (identical(_entry, entry)) {
+            _returnToSetup(
+              errorMessage: 'Could not play ${sound.displayName}.',
+            );
+          }
+          return;
+        }
         await _player.play(entry);
       },
       canRun: () => !_disposed && identical(_entry, entry),
