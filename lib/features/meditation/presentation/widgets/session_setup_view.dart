@@ -140,7 +140,7 @@ class _SessionSetupViewState extends State<SessionSetupView> {
                     ListenableBuilder(
                       listenable: widget.appSettings,
                       builder: (context, _) => BellDropdown(
-                        selection: state.bell,
+                        selection: session.bell,
                         builtIns: widget.appSettings.enabledBuiltInBells,
                         customBells: widget.appSettings.customBells,
                         onChanged: state.isBellEnabled

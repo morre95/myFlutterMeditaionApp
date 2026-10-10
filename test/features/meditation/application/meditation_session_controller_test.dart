@@ -10,11 +10,20 @@ import 'package:my_meditation_app/features/player/application/playback_ownership
 import 'package:my_meditation_app/features/player/application/playback_source_resolver.dart';
 import 'package:my_meditation_app/features/playlists/application/playlist_playback_controller.dart';
 import 'package:my_meditation_app/features/playlists/domain/playlist.dart';
+import 'package:my_meditation_app/features/settings/application/app_settings_controller.dart';
+import 'package:my_meditation_app/features/settings/infrastructure/shared_preferences_app_settings_repository.dart';
 import 'package:my_meditation_app/features/timer/application/bell_ringer.dart';
 import 'package:my_meditation_app/features/timer/application/timer_bell_player.dart';
 import 'package:my_meditation_app/features/timer/domain/bell_selection.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+const _gong = AudioSource(
+  id: 'local:/bells/gong.mp3',
+  kind: AudioSourceKind.localFile,
+  displayName: 'gong.mp3',
+  reference: '/bells/gong.mp3',
+);
 
 const _rain = AudioSource(
   id: 'import:rain',
@@ -37,6 +46,7 @@ class _Harness {
       ),
       repository: SharedPreferencesMeditationSettingsRepository(),
       ownership: ownership,
+      appSettings: appSettings,
       clock: clock ?? () => async.elapsed,
     );
   }
@@ -45,6 +55,9 @@ class _Harness {
   final _AudioPlayer audio;
   late final _BellPlayer bellPlayer;
   final ownership = PlaybackOwnershipController();
+  final appSettings = AppSettingsController(
+    repository: SharedPreferencesAppSettingsRepository(),
+  );
   late final LocalAudioPlaybackController player;
   late final MeditationSessionController session;
 
@@ -58,6 +71,7 @@ class _Harness {
   void dispose() {
     session.dispose();
     player.dispose();
+    appSettings.dispose();
     async.flushMicrotasks();
   }
 }
@@ -745,24 +759,75 @@ void main() {
 
   test('a custom bell choice is remembered', () {
     fakeAsync((async) {
-      const gong = AudioSource(
-        id: 'local:/bells/gong.mp3',
-        kind: AudioSourceKind.localFile,
-        displayName: 'gong.mp3',
-        reference: '/bells/gong.mp3',
-      );
       final first = _Harness(async);
-      first.session.selectBell(const BellSelection.custom(gong));
+      first.session.selectBell(const BellSelection.custom(_gong));
       async.flushMicrotasks();
       first.dispose();
 
       final next = _Harness(async);
       next.session.load();
       async.flushMicrotasks();
-      expect(next.session.state.bell.source!.id, gong.id);
+      expect(next.session.state.bell.source!.id, _gong.id);
       expect(next.session.state.sound, isNull);
       expect(next.session.state.duration, const Duration(minutes: 20));
       next.dispose();
+    });
+  });
+
+  test('a removed custom bell rings the bell setup falls back to', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.appSettings.addCustomBell(_gong);
+      async.flushMicrotasks();
+      h.session.selectBell(const BellSelection.custom(_gong));
+      h.appSettings.removeCustomBell(_gong.id);
+      async.flushMicrotasks();
+      expect(h.session.bell.name, 'bell_1');
+
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 1));
+      expect(h.session.state.errorMessage, isNull);
+      expect(h.audio.log.last, 'bell bells/bell_1.mp3');
+      h.dispose();
+    });
+  });
+
+  test('a disabled built-in bell rings the first enabled bell instead', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.session.selectBell(const BellSelection.builtIn('bell_1'));
+      h.appSettings.disableBuiltInBell('bell_1');
+      async.flushMicrotasks();
+      expect(h.session.bell.name, 'bell_2');
+
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 1));
+      expect(h.audio.log.last, 'bell bells/bell_2.mp3');
+      h.dispose();
+    });
+  });
+
+  test('a failed volume reset returns to setup with an error', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.audio.volumeError = StateError('native volume failed');
+      h.startWith(_rain, const Duration(minutes: 1));
+      expect(h.session.state.status, MeditationSessionStatus.setup);
+      expect(h.session.state.errorMessage, 'Could not play rain.wav.');
+      expect(h.audio.isPlaying, isFalse);
+      h.dispose();
+    });
+  });
+
+  test('a failed fade step keeps the session running to its end', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 1));
+      h.audio.volumeError = StateError('native volume failed');
+      async.elapse(const Duration(minutes: 1));
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(h.audio.log.last, 'bell bells/bell_1.mp3');
+      h.dispose();
     });
   });
 }
@@ -820,6 +885,7 @@ class _AudioPlayer implements LocalAudioPlayer {
   Completer<void>? volumeReady;
   Object? loadError;
   Object? pauseError;
+  Object? volumeError;
   @override
   Stream<bool> get completedStream => completions.stream;
   @override
@@ -857,6 +923,7 @@ class _AudioPlayer implements LocalAudioPlayer {
   @override
   Future<void> setVolume(double volume) async {
     await volumeReady?.future;
+    if (volumeError != null) throw volumeError!;
     this.volume = volume;
     log.add('volume ${volume.toStringAsFixed(2)}');
   }
