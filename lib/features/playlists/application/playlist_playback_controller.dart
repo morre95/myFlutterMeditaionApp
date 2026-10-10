@@ -86,15 +86,42 @@ class PlaylistPlaybackController extends ChangeNotifier {
     HistoryController? history,
     Random? random,
     PlaybackOwnershipController? ownership,
+    Duration Function()? clock,
   }) : _player = player,
        _history = history,
        _random = random ?? Random(),
-       _ownership = ownership {
+       _ownership = ownership,
+       _clock = clock ?? _monotonicClock() {
     player.addListener(_onPlayerStateChanged);
   }
 
   final LocalAudioPlaybackController _player;
   final HistoryController? _history;
+  final Duration Function() _clock;
+  static Duration Function() _monotonicClock() {
+    final stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsed;
+  }
+
+  String? _sessionId;
+  Duration? _plannedDuration;
+  Duration _activeElapsed = Duration.zero;
+  Duration? _countingSince;
+
+  void _stopCounting() {
+    if (_countingSince != null) {
+      _activeElapsed += _clock() - _countingSince!;
+      _countingSince = null;
+    }
+  }
+
+  void _beginSession(Duration? planned) {
+    _sessionId = newSessionId();
+    _plannedDuration = planned;
+    _activeElapsed = Duration.zero;
+    _countingSince = null;
+  }
+
   final Random _random;
   final PlaybackOwnershipController? _ownership;
   bool _disposed = false;
@@ -122,11 +149,18 @@ class PlaylistPlaybackController extends ChangeNotifier {
     final request = ++_requestGeneration;
     return _withOwnership(() async {
       final generation = ++_playbackGeneration;
+      _recordSession(SessionOutcome.endedEarly);
       await _player.stop();
       if (!_isCurrent(generation)) {
         return;
       }
       _singleTrackMode = false;
+      _beginSession(
+        _playlistDuration(
+          playlist,
+          startIndex: _state.shuffleEnabled ? 0 : startIndex,
+        ),
+      );
       _shuffledOrder = _state.shuffleEnabled
           ? _buildShuffledOrder(playlist.tracks.length, startIndex)
           : null;
@@ -150,12 +184,14 @@ class PlaylistPlaybackController extends ChangeNotifier {
     final request = ++_requestGeneration;
     return _withOwnership(() async {
       final generation = ++_playbackGeneration;
+      _recordSession(SessionOutcome.endedEarly);
       await _player.stop();
       if (!_isCurrent(generation)) {
         return;
       }
       _shuffledOrder = null;
       _singleTrackMode = true;
+      _beginSession(playlist.tracks[index].source.duration);
       _setState(
         _state.copyWith(
           status: PlaylistPlaybackStatus.playing,
@@ -206,6 +242,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
   }
 
   Future<void> _stopPlayback() async {
+    _recordSession(SessionOutcome.endedEarly);
     _playbackGeneration++;
     final repeat = _state.repeatMode;
     final shuffle = _state.shuffleEnabled;
@@ -234,6 +271,14 @@ class PlaylistPlaybackController extends ChangeNotifier {
         return;
       }
       _singleTrackMode = false;
+      if (_sessionId == null) {
+        _beginSession(
+          _playlistDuration(
+            playlist,
+            startIndex: _state.shuffleEnabled ? 0 : index,
+          ),
+        );
+      }
       _setState(
         _state.copyWith(
           status: PlaylistPlaybackStatus.playing,
@@ -304,6 +349,11 @@ class PlaylistPlaybackController extends ChangeNotifier {
 
   void _onPlayerStateChanged() {
     final playerState = _player.state;
+    if (playerState.status != LocalPlaybackStatus.playing) {
+      _stopCounting();
+    } else if (_sessionId != null && _countingSince == null) {
+      _countingSince = _clock();
+    }
 
     final previous = _previousPlayerStatus;
     _previousPlayerStatus = playerState.status;
@@ -322,6 +372,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
         ),
       );
     } else if (playerState.status == LocalPlaybackStatus.error) {
+      _recordSession(SessionOutcome.endedEarly);
       _setState(
         _state.copyWith(
           status: PlaylistPlaybackStatus.error,
@@ -341,7 +392,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
 
     // A single-track play stops once the track finishes.
     if (_singleTrackMode) {
-      _recordCompletedSession(_state.currentTrack?.source.duration);
+      _recordSession(SessionOutcome.completed);
       _setState(_state.copyWith(status: PlaylistPlaybackStatus.completed));
       return;
     }
@@ -356,7 +407,7 @@ class PlaylistPlaybackController extends ChangeNotifier {
       wrap: _state.repeatMode == PlaylistRepeatMode.repeatPlaylist,
     );
     if (nextIndex == null) {
-      _recordCompletedSession(_playlistDuration(playlist));
+      _recordSession(SessionOutcome.completed);
       _setState(
         _state.copyWith(
           status: PlaylistPlaybackStatus.completed,
@@ -442,17 +493,34 @@ class PlaylistPlaybackController extends ChangeNotifier {
     );
   }
 
-  /// Logs a completed listening session. Skips sessions of unknown length so
-  /// they don't pollute the streak with zero-duration entries.
-  void _recordCompletedSession(Duration? duration) {
-    if (duration == null || duration <= Duration.zero) return;
-    unawaited(_history?.record(duration, mode: SessionMode.music));
+  void _recordSession(SessionOutcome outcome) {
+    final id = _sessionId;
+    if (id == null) return;
+    _stopCounting();
+    _sessionId = null;
+    unawaited(
+      _history
+          ?.record(
+            _plannedDuration,
+            id: id,
+            actualDuration: _activeElapsed,
+            mode: SessionMode.music,
+            outcome: outcome,
+          )
+          .catchError((Object error) {
+            debugPrint('Could not save music history (${error.runtimeType}).');
+          }),
+    );
   }
 
-  Duration _playlistDuration(Playlist playlist) => playlist.tracks.fold(
-    Duration.zero,
-    (sum, track) => sum + (track.source.duration ?? Duration.zero),
-  );
+  Duration? _playlistDuration(Playlist playlist, {int startIndex = 0}) {
+    final tracks = playlist.tracks.skip(startIndex);
+    if (tracks.any((track) => track.source.duration == null)) return null;
+    return tracks.fold(
+      Duration.zero,
+      (sum, track) => sum! + track.source.duration!,
+    );
+  }
 
   bool _isRequested(int request) => !_disposed && request == _requestGeneration;
 

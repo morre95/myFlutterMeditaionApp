@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import '../../history/application/history_controller.dart';
+import '../../history/domain/meditation_session.dart';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../shared/domain/audio_source.dart';
@@ -69,12 +72,14 @@ class MeditationSessionController extends ChangeNotifier {
     required PlaybackOwnershipController ownership,
     required AppSettingsController appSettings,
     required ElapsedClock clock,
+    HistoryController? history,
   }) : _player = player,
        _bell = bell,
        _repository = repository,
        _ownership = ownership,
        _appSettings = appSettings,
-       _clock = clock {
+       _clock = clock,
+       _history = history {
     _player.addListener(_onPlayerChanged);
   }
 
@@ -94,6 +99,8 @@ class MeditationSessionController extends ChangeNotifier {
   final PlaybackOwnershipController _ownership;
   final AppSettingsController _appSettings;
   final ElapsedClock _clock;
+  final HistoryController? _history;
+  String? _sessionId;
 
   MeditationSessionState _state = MeditationSessionState(
     status: MeditationSessionStatus.setup,
@@ -267,6 +274,7 @@ class MeditationSessionController extends ChangeNotifier {
     if (sound == null || !_isSetup) {
       return Future<void>.value();
     }
+    _sessionId = newSessionId();
     _activeElapsed = Duration.zero;
     _streamPosition = Duration.zero;
     _playThroughStart = Duration.zero;
@@ -368,6 +376,11 @@ class MeditationSessionController extends ChangeNotifier {
   }
 
   void _returnToSetup({String? errorMessage}) {
+    _recordOutcome(
+      remaining == Duration.zero
+          ? SessionOutcome.completed
+          : SessionOutcome.endedEarly,
+    );
     _streamWatchdog?.cancel();
     _streamWatchdog = null;
     if (_countingSince != null) _stopCounting();
@@ -460,14 +473,40 @@ class MeditationSessionController extends ChangeNotifier {
     if (remaining > Duration.zero) return;
     _stopCounting();
     _streamWatchdog?.cancel();
+    final entry = _entry;
+    _recordOutcome(SessionOutcome.completed);
     _setState(_state.copyWith(status: MeditationSessionStatus.completed));
-    unawaited(_stopThenRingBell(_entry!));
+    if (entry != null && identical(_entry, entry)) {
+      unawaited(_stopThenRingBell(entry));
+    }
+  }
+
+  void _recordOutcome(SessionOutcome outcome) {
+    final id = _sessionId;
+    if (id == null) return;
+    _sessionId = null;
+    final actual = _state.duration - remaining;
+    unawaited(
+      _history
+          ?.record(
+            _state.duration,
+            id: id,
+            actualDuration: actual,
+            mode: SessionMode.meditate,
+            outcome: outcome,
+          )
+          .catchError((Object error) {
+            debugPrint(
+              'Could not save meditation history (${error.runtimeType}).',
+            );
+          }),
+    );
   }
 
   Future<void> _stopThenRingBell(QueueEntry entry) async {
     await _player.stop();
-    if (!_state.isBellEnabled) return;
     bool isCurrent() => !_disposed && identical(_entry, entry);
+    if (!_state.isBellEnabled || !isCurrent()) return;
     final bell = this.bell;
     try {
       await _bell.ring(bell, canRun: isCurrent);

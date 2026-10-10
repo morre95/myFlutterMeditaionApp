@@ -111,6 +111,116 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
 }
 
 void main() {
+  test(
+    'Previous after completion starts a separate measured Music session',
+    () async {
+      var elapsed = Duration.zero;
+      final native = _FakeLocalAudioPlayer();
+      final player = LocalAudioPlaybackController(player: native);
+      final history = HistoryController(repository: _FakeSessionRepository());
+      final music = PlaylistPlaybackController(
+        player: player,
+        history: history,
+        clock: () => elapsed,
+      );
+      final playlist = _playlistWithDurations({
+        'rain': const Duration(minutes: 5),
+        'forest': const Duration(minutes: 7),
+      });
+      await music.playSingleTrack(playlist, 1);
+      elapsed = const Duration(seconds: 10);
+      native.complete();
+      await Future<void>.delayed(Duration.zero);
+      final completedId = history.sessions.single.id;
+      await music.previous();
+      elapsed = const Duration(seconds: 14);
+      await music.stop();
+      await music.stop();
+      await Future<void>.delayed(Duration.zero);
+      expect(history.totalCount, 2);
+      final second = history.sessions.singleWhere(
+        (session) => session.id != completedId,
+      );
+      expect(second.actualDuration, const Duration(seconds: 4));
+      expect(second.plannedDuration, const Duration(minutes: 12));
+      expect(second.outcome, SessionOutcome.endedEarly);
+      expect(
+        history.sessions
+            .singleWhere((session) => session.id == completedId)
+            .outcome,
+        SessionOutcome.completed,
+      );
+      music.dispose();
+      player.dispose();
+    },
+  );
+
+  test(
+    'starting at a later Music track plans only the remaining known duration',
+    () async {
+      final native = _FakeLocalAudioPlayer();
+      final player = LocalAudioPlaybackController(player: native);
+      final history = HistoryController(repository: _FakeSessionRepository());
+      final music = PlaylistPlaybackController(
+        player: player,
+        history: history,
+      );
+      await music.playPlaylist(
+        _playlistWithDurations({
+          'rain': const Duration(minutes: 5),
+          'forest': const Duration(minutes: 7),
+        }),
+        startIndex: 1,
+      );
+      native.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        history.sessions.single.plannedDuration,
+        const Duration(minutes: 7),
+      );
+      music.dispose();
+      player.dispose();
+    },
+  );
+
+  test(
+    'unknown-length repeated music measures active time and ends once',
+    () async {
+      var elapsed = Duration.zero;
+      final native = _FakeLocalAudioPlayer();
+      final player = LocalAudioPlaybackController(player: native);
+      final history = HistoryController(repository: _FakeSessionRepository());
+      final music = PlaylistPlaybackController(
+        player: player,
+        history: history,
+        clock: () => elapsed,
+      );
+      await music.playPlaylist(_playlist(['rain']));
+      music.setPlaylistRepeatMode(PlaylistRepeatMode.repeatOne);
+      elapsed = const Duration(seconds: 8);
+      native.complete();
+      await Future<void>.delayed(Duration.zero);
+      elapsed = const Duration(seconds: 13);
+      await music.pause();
+      elapsed = const Duration(seconds: 100);
+      await music.resume();
+      elapsed = const Duration(seconds: 103);
+      await music.stop();
+      await music.stop();
+      native.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        history.sessions.single.actualDuration,
+        const Duration(seconds: 16),
+      );
+      expect(history.sessions.single.plannedDuration, isNull);
+      expect(history.sessions.single.outcome, SessionOutcome.endedEarly);
+      expect(history.currentStreak, 0);
+      music.dispose();
+      player.dispose();
+    },
+  );
+
   test('plays first track when playPlaylist is called', () async {
     final player = _FakeLocalAudioPlayer();
     final playback = LocalAudioPlaybackController(player: player);
@@ -239,7 +349,7 @@ void main() {
     playback.dispose();
   });
 
-  test('does not record a session for tracks of unknown length', () async {
+  test('records completion even for tracks of unknown length', () async {
     final player = _FakeLocalAudioPlayer();
     final playback = LocalAudioPlaybackController(player: player);
     final repo = _FakeSessionRepository();
@@ -256,7 +366,9 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.state.status, PlaylistPlaybackStatus.completed);
-    expect(history.totalCount, 0);
+    expect(history.totalCount, 1);
+    expect(history.sessions.single.plannedDuration, isNull);
+    expect(history.sessions.single.outcome, SessionOutcome.completed);
 
     controller.dispose();
     playback.dispose();

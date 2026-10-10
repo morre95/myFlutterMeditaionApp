@@ -139,6 +139,7 @@ class AppDependencies {
       _playlistPlaybackController ??= PlaylistPlaybackController(
         player: playbackController,
         history: historyController,
+        clock: clock,
         ownership: playbackOwnershipController,
       );
 
@@ -155,6 +156,7 @@ class AppDependencies {
         ownership: playbackOwnershipController,
         appSettings: appSettingsController,
         clock: clock,
+        history: historyController,
       );
 
   /// Loads persisted state. Call once at startup before `runApp`.
