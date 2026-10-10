@@ -1,4 +1,5 @@
 import '../features/library/application/local_audio_library.dart';
+import '../features/meditation/application/meditation_session_controller.dart';
 import '../features/library/application/local_wav_picker_service.dart';
 import '../features/cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../features/cloud/pcloud/application/pcloud_playback_source_resolver.dart';
@@ -20,8 +21,8 @@ import '../features/timer/infrastructure/shared_preferences_timer_settings_repos
 /// Owns the application's shared, long-lived singletons.
 ///
 /// Built once in `main()` before the widget tree is created. Screens read these
-/// via [AppScope]. Music playback belongs to the application so navigation
-/// does not interrupt it. Per-session silent timers remain screen-scoped.
+/// via [AppScope]. Music and Meditate playback belong to the application so
+/// navigation does not interrupt them. Silent timers remain screen-scoped.
 class AppDependencies {
   AppDependencies._({
     required this.playlistController,
@@ -35,7 +36,10 @@ class AppDependencies {
     required this.timerSettingsRepository,
     required this.playbackSourceResolver,
     LocalAudioPlaybackController? playbackController,
-  }) : _playbackController = playbackController;
+    LocalAudioPlaybackController? meditationPlaybackController,
+    required this.clock,
+  }) : _playbackController = playbackController,
+       _meditationPlaybackController = meditationPlaybackController;
 
   factory AppDependencies({
     PlaylistController? playlistController,
@@ -48,6 +52,8 @@ class AppDependencies {
     TimerSettingsRepository? timerSettingsRepository,
     PlaybackSourceResolver? playbackSourceResolver,
     LocalAudioPlaybackController? playbackController,
+    LocalAudioPlaybackController? meditationPlaybackController,
+    ElapsedClock? clock,
   }) {
     final library = localAudioLibrary ?? LocalAudioLibrary();
     final auth = pcloudAuthController ?? PCloudAuthController();
@@ -75,12 +81,19 @@ class AppDependencies {
       pcloudAuthController: auth,
       pcloudService: service,
       playbackController: playbackController,
+      meditationPlaybackController: meditationPlaybackController,
+      clock: clock ?? _stopwatchClock(),
       timerSettingsRepository:
           timerSettingsRepository ?? SharedPreferencesTimerSettingsRepository(),
       playbackSourceResolver:
           playbackSourceResolver ??
           PCloudPlaybackSourceResolver(service: service),
     );
+  }
+
+  static ElapsedClock _stopwatchClock() {
+    final stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsed;
   }
 
   final LocalAudioLibrary localAudioLibrary;
@@ -94,10 +107,15 @@ class AppDependencies {
   final TimerSettingsRepository timerSettingsRepository;
   final PlaybackSourceResolver playbackSourceResolver;
 
+  /// Monotonic time for measuring active session time.
+  final ElapsedClock clock;
+
   final PlaybackOwnershipController playbackOwnershipController =
       PlaybackOwnershipController();
   LocalAudioPlaybackController? _playbackController;
   PlaylistPlaybackController? _playlistPlaybackController;
+  LocalAudioPlaybackController? _meditationPlaybackController;
+  MeditationSessionController? _meditationSessionController;
 
   LocalAudioPlaybackController get playbackController => _playbackController ??=
       LocalAudioPlaybackController(resolver: playbackSourceResolver);
@@ -107,6 +125,15 @@ class AppDependencies {
         player: playbackController,
         history: historyController,
         ownership: playbackOwnershipController,
+      );
+
+  MeditationSessionController get meditationSessionController =>
+      _meditationSessionController ??= MeditationSessionController(
+        player: _meditationPlaybackController ??= LocalAudioPlaybackController(
+          resolver: playbackSourceResolver,
+        ),
+        ownership: playbackOwnershipController,
+        clock: clock,
       );
 
   /// Loads persisted state. Call once at startup before `runApp`.
@@ -123,6 +150,8 @@ class AppDependencies {
   void dispose() {
     _playlistPlaybackController?.dispose();
     _playbackController?.dispose();
+    _meditationSessionController?.dispose();
+    _meditationPlaybackController?.dispose();
     playlistController.dispose();
     appSettingsController.dispose();
     historyController.dispose();

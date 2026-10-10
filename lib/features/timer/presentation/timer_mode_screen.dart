@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
 import '../../../shared/domain/audio_source.dart';
+import '../../../shared/presentation/countdown_circle.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../settings/application/app_settings_controller.dart';
 import '../application/timer_controller.dart';
@@ -106,7 +107,7 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
                     'Set a duration and choose a bell for session end.',
                   ),
                   const SizedBox(height: 20),
-                  _TimerProgressCircle(
+                  CountdownCircle(
                     progress: state.progress,
                     remaining: state.remaining,
                   ),
@@ -213,50 +214,5 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
         ),
       ],
     );
-  }
-}
-
-class _TimerProgressCircle extends StatelessWidget {
-  const _TimerProgressCircle({required this.progress, required this.remaining});
-
-  final double progress;
-  final Duration remaining;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: SizedBox(
-        width: 200,
-        height: 200,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            CircularProgressIndicator(
-              key: const Key('timer-progress-indicator'),
-              value: progress,
-              strokeWidth: 10,
-            ),
-            Center(
-              child: Text(
-                _formatDuration(remaining),
-                key: const Key('timer-remaining-time-text'),
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatDuration(Duration duration) {
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final hours = duration.inHours;
-    if (hours > 0) {
-      final hh = hours.toString().padLeft(2, '0');
-      return '$hh:$minutes:$seconds';
-    }
-    return '$minutes:$seconds';
   }
 }
