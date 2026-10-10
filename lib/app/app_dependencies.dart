@@ -166,7 +166,12 @@ class AppDependencies {
           ),
         ),
         bell: BellRinger(
-          player: _meditationBellPlayer ?? TimerBellPlayer(),
+          player:
+              _meditationBellPlayer ??
+              TimerBellPlayer(
+                manageAudioFocus:
+                    kIsWeb || defaultTargetPlatform != TargetPlatform.android,
+              ),
           sourceResolver: playbackSourceResolver,
         ),
         repository: meditationSettingsRepository,

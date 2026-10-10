@@ -42,6 +42,11 @@ class BellRinger {
     );
   }
 
+  /// Completion is awaited outside the command queue, so End can still Stop.
+  Future<void> get playbackFinished => _player is BellPlaybackLifecycle
+      ? (_player as BellPlaybackLifecycle).playbackFinished
+      : Future<void>.value();
+
   Future<void> stop() => _commands.run(_player.stop);
 
   Future<void> dispose() =>

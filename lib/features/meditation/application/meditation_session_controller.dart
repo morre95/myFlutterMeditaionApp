@@ -102,6 +102,8 @@ class MeditationSessionController extends ChangeNotifier {
   bool _stopFailed = false;
   bool get isSilencing => _pendingStops > 0 || _stopFailed;
   bool get hasSilencingError => _stopFailed;
+  QueueEntry? _finishingBell;
+  bool get isFinishingBell => _finishingBell != null;
 
   MeditationSessionState _state = MeditationSessionState(
     status: MeditationSessionStatus.setup,
@@ -328,6 +330,9 @@ class MeditationSessionController extends ChangeNotifier {
   }
 
   Future<void> pause() {
+    if (_state.status == MeditationSessionStatus.completed && isFinishingBell) {
+      return _pauseCompletionBell();
+    }
     if (_state.status != MeditationSessionStatus.running &&
         _state.status != MeditationSessionStatus.loading) {
       return Future<void>.value();
@@ -357,6 +362,26 @@ class MeditationSessionController extends ChangeNotifier {
             });
     _pendingPause = pending;
     return pending;
+  }
+
+  Future<void> _pauseCompletionBell() async {
+    ++_command;
+    _pendingStops++;
+    _finishingBell = null;
+    notifyListeners();
+    try {
+      await _bell.stop();
+    } catch (_) {
+      _stopFailed = true;
+      _setState(
+        _state.copyWith(
+          errorMessage: 'Could not silence the bell. Try End again.',
+        ),
+      );
+    } finally {
+      _pendingStops--;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   Future<void> resume() async {
@@ -421,6 +446,7 @@ class MeditationSessionController extends ChangeNotifier {
       _stopFailed = false;
     } catch (_) {
       _stopFailed = true;
+      _finishingBell = null;
       _setState(
         _state.copyWith(
           status: MeditationSessionStatus.paused,
@@ -435,6 +461,7 @@ class MeditationSessionController extends ChangeNotifier {
 
   void _returnToSetup({String? errorMessage}) {
     ++_command;
+    _finishingBell = null;
     _streamWatchdog?.cancel();
     _streamWatchdog = null;
     if (_countingSince != null) _stopCounting();
@@ -528,6 +555,7 @@ class MeditationSessionController extends ChangeNotifier {
     _stopCounting();
     _streamWatchdog?.cancel();
     _pendingStops++;
+    if (_state.isBellEnabled) _finishingBell = _entry;
     _setState(_state.copyWith(status: MeditationSessionStatus.completed));
     unawaited(_stopThenRingBell(_entry!));
   }
@@ -538,6 +566,7 @@ class MeditationSessionController extends ChangeNotifier {
       _stopFailed = false;
     } catch (_) {
       _stopFailed = true;
+      _finishingBell = null;
       _setState(
         _state.copyWith(
           status: MeditationSessionStatus.paused,
@@ -550,16 +579,25 @@ class MeditationSessionController extends ChangeNotifier {
       if (!_disposed) notifyListeners();
     }
     if (!_state.isBellEnabled) return;
-    bool isCurrent() => !_disposed && identical(_entry, entry);
+    bool isCurrent() =>
+        !_disposed &&
+        identical(_entry, entry) &&
+        identical(_finishingBell, entry);
     final bell = this.bell;
     try {
       await _bell.ring(bell, canRun: isCurrent);
+      if (isCurrent()) await _bell.playbackFinished;
     } catch (_) {
       // Only the bell failed: the session stays complete and its sound off.
       if (isCurrent()) {
         _setState(
           _state.copyWith(errorMessage: 'Could not play ${bell.displayName}.'),
         );
+      }
+    } finally {
+      if (identical(_finishingBell, entry)) {
+        _finishingBell = null;
+        if (!_disposed) notifyListeners();
       }
     }
   }
