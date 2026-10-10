@@ -94,16 +94,16 @@ class PCloudDownloadController extends ChangeNotifier {
       final transfer = await _service.openDownload(fileId);
       final copy = await _store.save(
         source,
-        _tracked(fileId, active.guard(transfer.bytes), transfer.length),
+        _tracked(fileId, active, transfer.bytes, transfer.length),
       );
-      _set(fileId, PCloudDownloadState.available(copy));
+      _settle(fileId, active, PCloudDownloadState.available(copy));
     } on _DownloadCanceled {
-      _states.remove(fileId);
-      notifyListeners();
+      // cancel() already reset the state.
     } on FileSystemException catch (error) {
       debugPrint('pCloud download could not be stored: $error');
-      _set(
+      _settle(
         fileId,
+        active,
         PCloudDownloadState.failed(
           error.osError?.errorCode == _noSpaceLeftOnDevice
               ? 'Not enough storage to download ${source.displayName}. '
@@ -112,18 +112,20 @@ class PCloudDownloadController extends ChangeNotifier {
         ),
       );
     } on PCloudException catch (error) {
-      _set(fileId, PCloudDownloadState.failed(error.message));
+      _settle(fileId, active, PCloudDownloadState.failed(error.message));
     } on Exception catch (error) {
       debugPrint('pCloud download transfer failed: $error');
-      _set(
+      _settle(
         fileId,
+        active,
         PCloudDownloadState.failed(
           'Download of ${source.displayName} failed. '
           'Check your connection and retry.',
         ),
       );
     } finally {
-      _active.remove(fileId);
+      // A canceled transfer may already be replaced by a new one.
+      if (identical(_active[fileId], active)) _active.remove(fileId);
     }
   }
 
@@ -131,14 +133,16 @@ class PCloudDownloadController extends ChangeNotifier {
   /// the store can commit it.
   Stream<List<int>> _tracked(
     String fileId,
+    _ActiveTransfer active,
     Stream<List<int>> bytes,
     int? length,
   ) async* {
     var received = 0;
-    await for (final chunk in bytes) {
+    await for (final chunk in active.guard(bytes)) {
       received += chunk.length;
-      _set(
+      _settle(
         fileId,
+        active,
         PCloudDownloadState.downloading(
           receivedBytes: received,
           totalBytes: length,
@@ -151,8 +155,26 @@ class PCloudDownloadController extends ChangeNotifier {
     }
   }
 
-  /// Stops [source]'s transfer at once, even while no bytes are arriving.
-  void cancel(AudioSource source) => _active[source.reference]?.cancel();
+  /// Stops [source]'s transfer at once, whether its request is still pending
+  /// or no bytes are arriving; anything the abandoned transfer reports later
+  /// is ignored.
+  void cancel(AudioSource source) {
+    final fileId = source.reference;
+    final active = _active.remove(fileId);
+    if (active == null) return;
+    active.cancel();
+    _states.remove(fileId);
+    notifyListeners();
+  }
+
+  /// Records [state] unless [active] was canceled.
+  void _settle(
+    String fileId,
+    _ActiveTransfer active,
+    PCloudDownloadState state,
+  ) {
+    if (!active.isCanceled) _set(fileId, state);
+  }
 
   void _set(String fileId, PCloudDownloadState state) {
     _states[fileId] = state;
@@ -175,12 +197,15 @@ class _ActiveTransfer {
   final _canceled = Completer<void>();
   late final Future<void> done;
 
+  bool get isCanceled => _canceled.isCompleted;
+
   void cancel() {
     if (!_canceled.isCompleted) _canceled.complete();
   }
 
   /// Forwards [bytes] until [cancel], which ends the stream with
-  /// [_DownloadCanceled] and releases the network transfer.
+  /// [_DownloadCanceled] and releases the network transfer, also when the
+  /// transfer only starts after [cancel].
   Stream<List<int>> guard(Stream<List<int>> bytes) {
     late final StreamSubscription<List<int>> source;
     final output = StreamController<List<int>>();

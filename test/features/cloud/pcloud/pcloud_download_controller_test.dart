@@ -103,6 +103,67 @@ void main() {
     },
   );
 
+  group('cancel while the download request is still pending', () {
+    test(
+      'takes effect at once and a new download ignores the late response',
+      () async {
+        cloud.holdResponses = true;
+        final downloads = controller();
+        final abandoned = downloads.download(_rain);
+        final first = await cloud.nextTransfer();
+
+        downloads.cancel(_rain);
+
+        expect(
+          downloads.stateOf(_rain).status,
+          PCloudDownloadStatus.notDownloaded,
+        );
+
+        final retried = downloads.download(_rain);
+        final second = await cloud.nextTransfer();
+        expect(cloud.transferCount, 2);
+
+        first.respond();
+        await abandoned;
+        expect(first.isCanceled, isTrue);
+        expect(
+          downloads.stateOf(_rain).status,
+          PCloudDownloadStatus.downloading,
+        );
+
+        second.respond();
+        second.add([5, 6, 7, 8]);
+        await second.close();
+        await retried;
+        expect(await File(downloads.offlineCopyOf(_rain)!.path).readAsBytes(), [
+          5,
+          6,
+          7,
+          8,
+        ]);
+        expect(await root.list().map((entry) => entry.path).toList(), [
+          '${root.path}/100',
+        ]);
+      },
+    );
+
+    test('stays not downloaded when the abandoned request fails', () async {
+      cloud.holdResponses = true;
+      final downloads = controller();
+      final abandoned = downloads.download(_rain);
+      final transfer = await cloud.nextTransfer();
+
+      downloads.cancel(_rain);
+      transfer.failResponse(http.ClientException('Connection reset'));
+      await abandoned;
+
+      expect(
+        downloads.stateOf(_rain).status,
+        PCloudDownloadStatus.notDownloaded,
+      );
+    });
+  });
+
   group(
     'a failed transfer reports why, leaves no copy, and can be retried',
     () {
@@ -258,6 +319,10 @@ class _ControlledPCloud {
   /// Set to make every request fail as if the device were offline.
   bool offline = false;
 
+  /// Set to hold each file response until the test calls [_Transfer.respond]
+  /// or [_Transfer.failResponse].
+  bool holdResponses = false;
+
   late final PCloudService service = PCloudService(
     session: const _FakeSession(),
     client: MockClient.streaming((request, _) async {
@@ -279,6 +344,7 @@ class _ControlledPCloud {
       final transfer = _Transfer();
       transferCount++;
       _transfers.add(transfer);
+      if (holdResponses) await transfer._response.future;
       return http.StreamedResponse(
         transfer._bytes.stream,
         200,
@@ -296,6 +362,10 @@ class _ControlledPCloud {
 
 class _Transfer {
   final _bytes = StreamController<List<int>>();
+  final _response = Completer<void>();
+
+  void respond() => _response.complete();
+  void failResponse(Object error) => _response.completeError(error);
 
   bool get isCanceled => _canceled;
   bool _canceled = false;
