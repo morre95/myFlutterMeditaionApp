@@ -37,6 +37,8 @@ dependencies:
   file_picker: ^12.1.1
   audioplayers: ^6.6.0
   shared_preferences: ^2.5.3
+  path_provider: ^2.1.6
+  path: ^1.9.1
   http: ^1.2.2
   # Held at 10.x deliberately: 11.0.0 removes the legacy Android ciphers, so a
   # device upgrading straight from a 9.x build cannot decrypt its stored pCloud

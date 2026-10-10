@@ -8,10 +8,10 @@ import '../../cloud/pcloud/application/pcloud_service.dart';
 import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../playlists/application/playlist_controller.dart';
 import '../application/local_wav_picker_service.dart';
+import '../application/local_audio_library.dart';
 import 'pcloud_browser_screen.dart';
 
-/// Adds audio from local storage or pCloud into a chosen playlist. Source files
-/// stay read-only; only references are stored.
+/// Imports durable local copies or adds read-only pCloud references to playlists.
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -23,7 +23,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   late final PlaylistController _playlists;
   late final PCloudAuthController _pcloudAuth;
   late final PCloudService _pcloudService;
-  final LocalAudioFilePicker _picker = FilePickerLocalAudioPicker();
+  late final LocalAudioFilePicker _picker;
   bool _resolved = false;
   bool _busy = false;
   String? _message;
@@ -35,6 +35,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _resolved = true;
     final scope = AppScope.of(context);
     _playlists = scope.playlistController;
+    _picker = scope.localAudioPicker;
     _pcloudAuth = scope.pcloudAuthController;
     _pcloudService = scope.pcloudService;
   }
@@ -92,6 +93,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ? 'No audio files were selected.'
             : 'Added ${added.length} file${added.length == 1 ? '' : 's'}.',
       );
+    } on AudioImportFailure catch (error) {
+      if (mounted) setState(() => _message = error.message);
     } catch (_) {
       if (mounted) setState(() => _message = 'Could not add files.');
     } finally {
@@ -169,7 +172,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   Text(
-                    'Add audio to a playlist. Your files stay read-only.',
+                    'Import audio to a playlist. Originals stay unchanged.',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.7),
                     ),
@@ -184,7 +187,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       leading: const Icon(Icons.smartphone),
                       title: const Text('Local phone storage'),
                       subtitle: const Text(
-                        'Pick audio files from this device.',
+                        'Save a durable copy of audio from this device.',
                       ),
                       trailing: const Icon(Icons.add),
                       onTap: _busy ? null : _addFromDevice,

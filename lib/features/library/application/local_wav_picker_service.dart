@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 
 import '../../../shared/domain/audio_source.dart';
+import 'local_audio_library.dart';
 
 const _supportedExtensions = ['wav', 'mp3', 'flac', 'ogg', 'm4a', 'aac'];
 
@@ -67,4 +68,15 @@ class LocalPickedFile {
 
   final String name;
   final String path;
+}
+
+/// Publishes playable sources only after durable copies have completed.
+class ManagedLocalAudioPicker implements LocalAudioFilePicker {
+  ManagedLocalAudioPicker({required this.library, LocalAudioFilePicker? picker})
+    : _picker = picker ?? FilePickerLocalAudioPicker();
+  final LocalAudioLibrary library;
+  final LocalAudioFilePicker _picker;
+  @override
+  Future<List<AudioSource>> pickAudioFiles() async =>
+      library.importSources(await _picker.pickAudioFiles());
 }
