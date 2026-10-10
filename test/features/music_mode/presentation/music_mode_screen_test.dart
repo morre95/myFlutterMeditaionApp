@@ -709,6 +709,9 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
     unawaited(_positionController.close());
     unawaited(_durationController.close());
   }
+
+  @override
+  Future<void> setVolume(double volume) async {}
 }
 
 class _DeferredSourceResolver implements PlaybackSourceResolver {

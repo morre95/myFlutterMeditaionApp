@@ -5,11 +5,11 @@ import 'package:flutter/foundation.dart';
 import '../../history/application/history_controller.dart';
 import '../../history/domain/meditation_session.dart';
 import '../../player/application/playback_source_resolver.dart';
-import '../../player/application/audio_command_queue.dart';
 import '../../player/application/playback_ownership_controller.dart';
 import '../domain/bell_selection.dart';
 import '../domain/timer_settings.dart';
 import '../infrastructure/shared_preferences_timer_settings_repository.dart';
+import 'bell_ringer.dart';
 import 'timer_bell_player.dart';
 import 'wake_lock.dart';
 
@@ -73,9 +73,11 @@ class TimerController extends ChangeNotifier {
     HistoryController? history,
     WakeLock? wakeLock,
     PlaybackOwnershipController? ownership,
-  }) : _bellPlayer = bellPlayer ?? TimerBellPlayer(),
+  }) : _bell = BellRinger(
+         player: bellPlayer ?? TimerBellPlayer(),
+         sourceResolver: sourceResolver ?? const LocalPlaybackSourceResolver(),
+       ),
        _repository = repository,
-       _sourceResolver = sourceResolver ?? const LocalPlaybackSourceResolver(),
        _history = history,
        _wakeLock = wakeLock ?? const WakelockPlusWakeLock(),
        _ownership = ownership {
@@ -91,14 +93,12 @@ class TimerController extends ChangeNotifier {
   static const Duration _defaultDuration = Duration(minutes: 10);
   static const int _minDurationMinutes = 1;
   static const int _maxDurationMinutes = 120;
-  final BellPlayer _bellPlayer;
+  final BellRinger _bell;
   final TimerSettingsRepository? _repository;
-  final PlaybackSourceResolver _sourceResolver;
   final HistoryController? _history;
   final WakeLock _wakeLock;
   final PlaybackOwnershipController? _ownership;
   bool _disposed = false;
-  final _bellCommands = AudioCommandQueue();
   Future<void>? _disposal;
   int _bellGeneration = 0;
   int _bellRequestGeneration = 0;
@@ -256,29 +256,16 @@ class TimerController extends ChangeNotifier {
   Future<void> _playBell(BellSelection bell) async {
     final generation = ++_bellGeneration;
     try {
-      if (bell.isCustom) {
-        final media = await _sourceResolver.resolve(bell.source!);
-        if (_disposed || generation != _bellGeneration) return;
-        await _bellCommands.run(
-          () => _bellPlayer.playMedia(media),
-          canRun: () => !_disposed && generation == _bellGeneration,
-        );
-        return;
-      }
-
-      final builtIn = _builtInBellFor(bell.name);
-      if (builtIn == null) {
-        _setState(
-          _state.copyWith(
-            status: TimerSessionStatus.error,
-            errorMessage: 'Selected bell is unavailable.',
-          ),
-        );
-        return;
-      }
-      await _bellCommands.run(
-        () => _bellPlayer.playAsset(builtIn.assetPath),
+      await _bell.ring(
+        bell,
         canRun: () => !_disposed && generation == _bellGeneration,
+      );
+    } on UnavailableBellException {
+      _setState(
+        _state.copyWith(
+          status: TimerSessionStatus.error,
+          errorMessage: 'Selected bell is unavailable.',
+        ),
       );
     } catch (_) {
       if (_disposed || generation != _bellGeneration) return;
@@ -289,13 +276,6 @@ class TimerController extends ChangeNotifier {
         ),
       );
     }
-  }
-
-  BuiltInBell? _builtInBellFor(String? id) {
-    for (final bell in builtInBells) {
-      if (bell.id == id) return bell;
-    }
-    return null;
   }
 
   /// Toggles the screen wakelock for the session lifecycle. Best-effort: a
@@ -334,7 +314,7 @@ class TimerController extends ChangeNotifier {
           return;
         }
         _resetSession();
-        await _bellCommands.run(_bellPlayer.stop);
+        await _bell.stop();
       },
       action: action,
       canRun: isCurrent,
@@ -353,10 +333,7 @@ class TimerController extends ChangeNotifier {
     _bellGeneration++;
     _timer?.cancel();
     _setWakeLock(false);
-    _disposal = _bellCommands.disposePlayer(
-      stop: _bellPlayer.stop,
-      dispose: _bellPlayer.dispose,
-    );
+    _disposal = _bell.dispose();
     unawaited(
       _disposal!.then<void>(
         (_) => _ownership?.forget(this),

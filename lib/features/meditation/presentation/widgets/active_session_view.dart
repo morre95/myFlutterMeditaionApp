@@ -29,6 +29,14 @@ class ActiveSessionView extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(_statusLabel(state.status), textAlign: TextAlign.center),
+        if (state.errorMessage != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            state.errorMessage!,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
         const SizedBox(height: 20),
         _SessionControls(session: session),
       ],

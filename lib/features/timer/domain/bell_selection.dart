@@ -47,3 +47,16 @@ const builtInBells = <BuiltInBell>[
   BuiltInBell(id: 'bell_3', label: 'Bell 3', assetPath: 'bells/bell_3.mp3'),
   BuiltInBell(id: 'bell_4', label: 'Bell 4', assetPath: 'bells/bell_4.mp3'),
 ];
+
+/// [selection] while it is still offered, otherwise the first of [builtIns],
+/// so a removed custom bell or a disabled built-in bell is never rung.
+BellSelection availableBell(
+  BellSelection selection, {
+  required List<BuiltInBell> builtIns,
+  required List<AudioSource> customBells,
+}) {
+  final isOffered = selection.isCustom
+      ? customBells.any((bell) => bell.id == selection.source!.id)
+      : builtIns.any((bell) => bell.id == selection.name);
+  return isOffered ? selection : builtIns.first.toSelection();
+}

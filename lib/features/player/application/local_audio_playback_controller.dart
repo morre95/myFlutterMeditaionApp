@@ -223,6 +223,11 @@ class LocalAudioPlaybackController extends ChangeNotifier {
     _setState(_state.copyWith(position: target));
   }
 
+  /// Sets the native volume, from 0 (silent) to 1 (full); it persists across
+  /// loads.
+  Future<void> setVolume(double volume) =>
+      _playerCommands.run(() => _player.setVolume(volume));
+
   Future<void> stop() async {
     if (_disposed) {
       await _disposal;
@@ -291,6 +296,8 @@ abstract class LocalAudioPlayer {
 
   Future<void> stop();
 
+  Future<void> setVolume(double volume);
+
   FutureOr<void> dispose();
 }
 
@@ -339,6 +346,9 @@ class AudioPlayersLocalPlayer implements LocalAudioPlayer {
   Future<void> stop() async {
     await _player.stop();
   }
+
+  @override
+  Future<void> setVolume(double volume) => _player.setVolume(volume);
 
   @override
   Future<void> dispose() => _player.dispose();

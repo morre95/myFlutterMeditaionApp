@@ -802,6 +802,9 @@ class _AudioPlayer implements LocalAudioPlayer {
     unawaited(positions.close());
     unawaited(durations.close());
   }
+
+  @override
+  Future<void> setVolume(double volume) async {}
 }
 
 class _BellPlayer implements BellPlayer {

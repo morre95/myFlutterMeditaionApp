@@ -1,5 +1,6 @@
 import '../features/library/application/local_audio_library.dart';
 import '../features/meditation/application/meditation_session_controller.dart';
+import '../features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
 import '../features/library/application/local_wav_picker_service.dart';
 import '../features/cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../features/cloud/pcloud/application/pcloud_playback_source_resolver.dart';
@@ -16,6 +17,8 @@ import '../features/playlists/application/playlist_controller.dart';
 import '../features/playlists/infrastructure/shared_preferences_playlist_repository.dart';
 import '../features/settings/application/app_settings_controller.dart';
 import '../features/settings/infrastructure/shared_preferences_app_settings_repository.dart';
+import '../features/timer/application/bell_ringer.dart';
+import '../features/timer/application/timer_bell_player.dart';
 import '../features/timer/infrastructure/shared_preferences_timer_settings_repository.dart';
 
 /// Owns the application's shared, long-lived singletons.
@@ -34,12 +37,15 @@ class AppDependencies {
     required this.pcloudAuthController,
     required this.pcloudService,
     required this.timerSettingsRepository,
+    required this.meditationSettingsRepository,
     required this.playbackSourceResolver,
     LocalAudioPlaybackController? playbackController,
     LocalAudioPlaybackController? meditationPlaybackController,
+    BellPlayer? meditationBellPlayer,
     required this.clock,
   }) : _playbackController = playbackController,
-       _meditationPlaybackController = meditationPlaybackController;
+       _meditationPlaybackController = meditationPlaybackController,
+       _meditationBellPlayer = meditationBellPlayer;
 
   factory AppDependencies({
     PlaylistController? playlistController,
@@ -50,9 +56,11 @@ class AppDependencies {
     FavoritesController? favoritesController,
     PCloudAuthController? pcloudAuthController,
     TimerSettingsRepository? timerSettingsRepository,
+    MeditationSettingsRepository? meditationSettingsRepository,
     PlaybackSourceResolver? playbackSourceResolver,
     LocalAudioPlaybackController? playbackController,
     LocalAudioPlaybackController? meditationPlaybackController,
+    BellPlayer? meditationBellPlayer,
     ElapsedClock? clock,
   }) {
     final library = localAudioLibrary ?? LocalAudioLibrary();
@@ -82,9 +90,13 @@ class AppDependencies {
       pcloudService: service,
       playbackController: playbackController,
       meditationPlaybackController: meditationPlaybackController,
+      meditationBellPlayer: meditationBellPlayer,
       clock: clock ?? _stopwatchClock(),
       timerSettingsRepository:
           timerSettingsRepository ?? SharedPreferencesTimerSettingsRepository(),
+      meditationSettingsRepository:
+          meditationSettingsRepository ??
+          SharedPreferencesMeditationSettingsRepository(),
       playbackSourceResolver:
           playbackSourceResolver ??
           PCloudPlaybackSourceResolver(service: service),
@@ -105,6 +117,7 @@ class AppDependencies {
   final PCloudAuthController pcloudAuthController;
   final PCloudService pcloudService;
   final TimerSettingsRepository timerSettingsRepository;
+  final MeditationSettingsRepository meditationSettingsRepository;
   final PlaybackSourceResolver playbackSourceResolver;
 
   /// Monotonic time for measuring active session time.
@@ -115,6 +128,7 @@ class AppDependencies {
   LocalAudioPlaybackController? _playbackController;
   PlaylistPlaybackController? _playlistPlaybackController;
   LocalAudioPlaybackController? _meditationPlaybackController;
+  final BellPlayer? _meditationBellPlayer;
   MeditationSessionController? _meditationSessionController;
 
   LocalAudioPlaybackController get playbackController => _playbackController ??=
@@ -132,7 +146,13 @@ class AppDependencies {
         player: _meditationPlaybackController ??= LocalAudioPlaybackController(
           resolver: playbackSourceResolver,
         ),
+        bell: BellRinger(
+          player: _meditationBellPlayer ?? TimerBellPlayer(),
+          sourceResolver: playbackSourceResolver,
+        ),
+        repository: meditationSettingsRepository,
         ownership: playbackOwnershipController,
+        appSettings: appSettingsController,
         clock: clock,
       );
 
@@ -144,6 +164,7 @@ class AppDependencies {
       historyController.load(),
       favoritesController.load(),
       pcloudAuthController.loadStoredSession(),
+      meditationSessionController.load(),
     ]);
   }
 

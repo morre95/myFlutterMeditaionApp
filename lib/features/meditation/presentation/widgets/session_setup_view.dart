@@ -2,20 +2,28 @@ import 'package:flutter/material.dart';
 
 import '../../../../shared/domain/audio_source.dart';
 import '../../../library/application/local_audio_library.dart';
+import '../../../settings/application/app_settings_controller.dart';
+import '../../../timer/presentation/widgets/bell_dropdown.dart';
 import '../../application/meditation_session_controller.dart';
 
-/// Chooses one imported sound and a duration before starting a session.
+/// Chooses one imported sound, a duration, and the optional ending bell before
+/// starting a session.
 ///
-/// The library is read each time setup appears, so it lists current sounds.
+/// The library is read each time setup appears, so it lists current sounds and
+/// revalidates the remembered one before Start.
 class SessionSetupView extends StatefulWidget {
   const SessionSetupView({
     super.key,
     required this.session,
     required this.library,
+    required this.appSettings,
   });
 
   final MeditationSessionController session;
   final LocalAudioLibrary library;
+
+  /// Supplies the enabled built-in bells and custom bells to choose from.
+  final AppSettingsController appSettings;
 
   @override
   State<SessionSetupView> createState() => _SessionSetupViewState();
@@ -49,6 +57,18 @@ class _SessionSetupViewState extends State<SessionSetupView> {
                       selected: selected,
                       onSelected: session.selectSound,
                     ),
+                    if (snapshot.hasData &&
+                        state.sound != null &&
+                        selected == null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '${state.sound!.displayName} is no longer available. '
+                        'Choose another sound.',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     const Text('Duration (minutes)'),
                     Slider(
@@ -64,6 +84,25 @@ class _SessionSetupViewState extends State<SessionSetupView> {
                           session.setDuration(Duration(minutes: value.round())),
                     ),
                     Text('${state.duration.inMinutes} minutes'),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      key: const Key('meditate-bell-switch'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Ring a bell at the end'),
+                      value: state.isBellEnabled,
+                      onChanged: session.setBellEnabled,
+                    ),
+                    ListenableBuilder(
+                      listenable: widget.appSettings,
+                      builder: (context, _) => BellDropdown(
+                        selection: session.bell,
+                        builtIns: widget.appSettings.enabledBuiltInBells,
+                        customBells: widget.appSettings.customBells,
+                        onChanged: state.isBellEnabled
+                            ? session.selectBell
+                            : null,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -71,7 +110,14 @@ class _SessionSetupViewState extends State<SessionSetupView> {
             const SizedBox(height: 16),
             Center(
               child: FilledButton(
-                onPressed: selected == null ? null : session.start,
+                onPressed: selected == null
+                    ? null
+                    : () {
+                        // Play the library's current copy, never a
+                        // remembered locator that may have moved.
+                        session.selectSound(selected);
+                        session.start();
+                      },
                 child: const Text('Start'),
               ),
             ),
