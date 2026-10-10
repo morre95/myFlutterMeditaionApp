@@ -11,7 +11,8 @@ is no second player, timer, or session. Native Pause/Play/Stop map to the same
 Pause/Resume/End commands as the screen. Background Play cannot start a session
 from setup. MediaItem duration and position describe active session time rather
 than a looping source. Loading publishes playing=true to start the foreground
-media service; pauses retain it for explicit background Resume on Android 15+.
+media service; pauses release foreground protection and explicit background
+Resume publishes playing=true before acquiring focus to restart it.
 End/automatic completion retain foreground protection while native Stop is
 pending. Stop failure falls back to Pause; if both fail, End remains available,
 new Start is blocked, and a successful retry releases the service.
@@ -107,3 +108,39 @@ must verify audible built-in and custom bell at the locked release deadline.
 
 Review-fix final verification: `flutter analyze` clean; full suite 212 tests passed
 (`/tmp/issue-9-bell-final-tests.log`); `git diff --check` clean. Phone untouched.
+
+
+## Physical QA fix: release resources while MainActivity remains bound
+
+Release `b152671` on SM-S921B/Android16 completed a one-minute bell-disabled
+session with media state NONE(0), position60000 and active=false, but the service
+remained foreground and held its partial wakelock for over75 seconds.
+Evidence: `/tmp/meditation-issue-9-evidence/long-after-deadline.json`.
+Installed audio_service0.18.19 native `stop()` calls stopSelf; an Activity binding
+prevents onDestroy, where foreground/wakelock cleanup otherwise occurs.
+
+Use supported `androidStopForegroundOnPause:true` (the documented default):
+playing true->false calls exitForegroundState and releases the wakelock even
+while bound. Existing handler semantics keep playing=true through native Stop
+and completion-bell resolution/playback, then publish false only after protection
+is no longer needed. Explicit Resume publishes playing=true before requesting
+focus and restarting audio; notification user interaction must permit the Android
+12+ foreground restart, to be verified physically on Android16 by the parent.
+No public dynamic configuration setter was found in package docs/API; no plugin
+fork, reflection or battery-optimization bypass was introduced.
+
+Context7 refreshed official config docs and README:
+https://github.com/ryanheise/audio_service/blob/minor/_autodocs/configuration.md
+https://github.com/ryanheise/audio_service/blob/minor/audio_service/README.md
+The README warns that background foreground-service restarts are restricted on
+Android12+. This change therefore requires actual locked notification Resume,
+completion/End lock release and bell lifetime evidence, beyond Dart fake tests.
+This section supersedes earlier plans to keep the service foreground on pause.
+
+Resource-release fix automated verification: `flutter analyze` clean; all212
+existing session/handler, bell and application tests passed
+(`/tmp/issue-9-resource-release-tests.log`); `git diff --check` clean. Existing
+approved seam tests confirm Pause publishes playing=false, Resume publishes true,
+Stop and bell completion stay protected until native completion. The binding and
+partial-wakelock issue requires native evidence, so no additional fake-only test
+is claimed to prove its resolution. Parent owns physical recheck.
