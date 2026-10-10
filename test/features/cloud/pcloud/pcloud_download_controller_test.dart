@@ -180,6 +180,37 @@ void main() {
     expect(await root.list().toList(), isEmpty);
   });
 
+  group('progress notifies listeners only when the shown percent changes', () {
+    Future<int> progressUpdates(int? contentLength) async {
+      cloud.contentLength = contentLength;
+      final downloads = controller();
+      final download = downloads.download(_rain);
+      final transfer = await cloud.nextTransfer();
+      var updates = 0;
+      downloads.addListener(() {
+        if (downloads.stateOf(_rain).status ==
+            PCloudDownloadStatus.downloading) {
+          updates++;
+        }
+      });
+      for (var i = 0; i < 1000; i++) {
+        transfer.add([i % 256]);
+      }
+      await transfer.close();
+      await download;
+      expect(downloads.stateOf(_rain).status, PCloudDownloadStatus.available);
+      return updates;
+    }
+
+    test('once per whole percent, 0 to 100, of a known length', () async {
+      expect(await progressUpdates(1000), 101);
+    });
+
+    test('never while the length is unknown', () async {
+      expect(await progressUpdates(null), 0);
+    });
+  });
+
   group(
     'a failed transfer reports why, leaves no copy, and can be retried',
     () {

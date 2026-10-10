@@ -71,20 +71,13 @@ class PCloudDownloadActions extends StatelessWidget {
   }
 
   Widget _progress(PCloudDownloadState state) {
-    final total = state.totalBytes;
-    final fraction = total == null || total == 0
-        ? null
-        : state.receivedBytes / total;
+    final percent = state.progressPercent;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          fraction == null
-              ? 'Downloading'
-              : 'Downloading ${(fraction * 100).floor()}%',
-        ),
+        Text(percent == null ? 'Downloading' : 'Downloading $percent%'),
         const SizedBox(height: 4),
-        LinearProgressIndicator(value: fraction),
+        LinearProgressIndicator(value: percent == null ? null : percent / 100),
       ],
     );
   }

@@ -42,6 +42,14 @@ class PCloudDownloadState {
 
   /// Announced transfer size; null when pCloud does not send a length.
   final int? totalBytes;
+
+  /// Whole percent received; null while the size is unknown.
+  int? get progressPercent {
+    final total = totalBytes;
+    if (total == null || total == 0) return null;
+    return receivedBytes * 100 ~/ total;
+  }
+
   final PCloudOfflineCopy? copy;
   final String? errorMessage;
 }
@@ -129,8 +137,8 @@ class PCloudDownloadController extends ChangeNotifier {
     }
   }
 
-  /// Reports progress and rejects a transfer that ends short or empty, before
-  /// the store can commit it.
+  /// Reports progress whenever its shown percent changes and rejects a
+  /// transfer that ends short or empty, before the store can commit it.
   Stream<List<int>> _tracked(
     String fileId,
     _ActiveTransfer active,
@@ -140,14 +148,14 @@ class PCloudDownloadController extends ChangeNotifier {
     var received = 0;
     await for (final chunk in active.guard(bytes)) {
       received += chunk.length;
-      _settle(
-        fileId,
-        active,
-        PCloudDownloadState.downloading(
-          receivedBytes: received,
-          totalBytes: length,
-        ),
+      final progress = PCloudDownloadState.downloading(
+        receivedBytes: received,
+        totalBytes: length,
       );
+      // Every row listens to this controller, so skip invisible changes.
+      if (progress.progressPercent != _states[fileId]?.progressPercent) {
+        _settle(fileId, active, progress);
+      }
       yield chunk;
     }
     if (received == 0 || (length != null && received != length)) {
