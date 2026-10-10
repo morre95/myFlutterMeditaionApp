@@ -58,6 +58,7 @@ class AppDependencies {
     HistoryController? historyController,
     FavoritesController? favoritesController,
     PCloudAuthController? pcloudAuthController,
+    PCloudService? pcloudService,
     PCloudDownloadStore? pcloudDownloadStore,
     TimerSettingsRepository? timerSettingsRepository,
     MeditationSettingsRepository? meditationSettingsRepository,
@@ -69,7 +70,7 @@ class AppDependencies {
   }) {
     final library = localAudioLibrary ?? LocalAudioLibrary();
     final auth = pcloudAuthController ?? PCloudAuthController();
-    final service = PCloudService(session: auth);
+    final service = pcloudService ?? PCloudService(session: auth);
     final downloads = PCloudDownloadController(
       service: service,
       store: pcloudDownloadStore ?? PCloudDownloadStore(),
@@ -148,6 +149,7 @@ class AppDependencies {
       _playlistPlaybackController ??= PlaylistPlaybackController(
         player: playbackController,
         history: historyController,
+        clock: clock,
         ownership: playbackOwnershipController,
       );
 
@@ -164,6 +166,7 @@ class AppDependencies {
         ownership: playbackOwnershipController,
         appSettings: appSettingsController,
         clock: clock,
+        history: historyController,
       );
 
   /// Loads persisted state. Call once at startup before `runApp`.

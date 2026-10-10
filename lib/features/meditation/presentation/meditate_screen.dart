@@ -27,6 +27,8 @@ class MeditateScreen extends StatelessWidget {
                     session: session,
                     library: deps.localAudioLibrary,
                     appSettings: deps.appSettingsController,
+                    cloudAuth: deps.pcloudAuthController,
+                    cloudService: deps.pcloudService,
                   )
                 : ActiveSessionView(session: session),
           ),

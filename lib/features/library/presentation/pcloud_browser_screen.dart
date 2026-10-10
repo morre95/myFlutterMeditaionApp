@@ -8,14 +8,15 @@ import '../../cloud/pcloud/domain/pcloud_config.dart';
 import '../../cloud/pcloud/domain/pcloud_listing.dart';
 import 'pcloud_download_actions.dart';
 
-/// Browses pCloud folders and lets the user tap audio files to add to a
-/// playlist. Returns nothing; additions are reported via [onAddFile].
+/// Browses pCloud folders for playlist additions or Meditate sound selection.
+/// Actions are reported via [onAddFile]; selection owners may close the route.
 class PCloudBrowserScreen extends StatefulWidget {
   const PCloudBrowserScreen({
     super.key,
     required this.service,
     required this.onAddFile,
     this.downloads,
+    this.selectionMode = false,
   });
 
   static const _rootCrumb = _FolderCrumb(
@@ -32,6 +33,9 @@ class PCloudBrowserScreen extends StatefulWidget {
   static void resetRememberedPath() => _rememberedPath = const [_rootCrumb];
 
   final PCloudService service;
+
+  /// Shows a sound-selection action without playlist confirmation messages.
+  final bool selectionMode;
 
   /// Offers Download/Cancel/Retry and shows offline availability per file;
   /// null hides them.
@@ -160,11 +164,17 @@ class _PCloudBrowserScreenState extends State<PCloudBrowserScreen> {
                                   source: file,
                                 ),
                           trailing: IconButton(
-                            tooltip: 'Add to playlist',
-                            icon: const Icon(Icons.add),
+                            tooltip: widget.selectionMode
+                                ? 'Select sound'
+                                : 'Add to playlist',
+                            icon: Icon(
+                              widget.selectionMode ? Icons.check : Icons.add,
+                            ),
                             onPressed: () async {
                               final added = await widget.onAddFile(file);
-                              if (!context.mounted) return;
+                              if (!context.mounted || widget.selectionMode) {
+                                return;
+                              }
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(

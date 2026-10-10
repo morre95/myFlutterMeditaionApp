@@ -76,7 +76,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       child: Padding(
                         padding: EdgeInsets.all(16),
                         child: Text(
-                          'No sessions yet. Complete a timer or music session '
+                          'No sessions yet. Complete a meditation, timer or music session '
                           'to start your streak.',
                         ),
                       ),
@@ -140,19 +140,37 @@ class _SessionTile extends StatelessWidget {
     return Card(
       child: ListTile(
         leading: Icon(_modeIcon),
-        title: Text('${session.duration.inMinutes} minute session'),
-        subtitle: Text('$_modeLabel · ${_formatDate(session.completedAt)}'),
+        title: Text(
+          session.actualDuration == null
+              ? '${_formatDuration(session.duration)} historical duration'
+              : '${_formatDuration(session.actualDuration!)} active',
+        ),
+        subtitle: Text(
+          '$_modeLabel · ${session.outcome == SessionOutcome.completed ? 'Completed' : 'Ended early'}'
+          '${session.actualDuration == null ? ' · Actual time unknown' : ''}'
+          '${session.plannedDuration == null ? '' : ' · Planned ${_formatDuration(session.plannedDuration!)}'}'
+          '\n${_formatDate(session.completedAt)}',
+        ),
       ),
     );
   }
 
+  String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return minutes == 0
+        ? '${seconds}s'
+        : (seconds == 0 ? '${minutes}m' : '${minutes}m ${seconds}s');
+  }
+
   IconData get _modeIcon => switch (session.mode) {
-    SessionMode.timer => Icons.self_improvement,
+    SessionMode.timer || SessionMode.meditate => Icons.self_improvement,
     SessionMode.music => Icons.music_note,
   };
 
   String get _modeLabel => switch (session.mode) {
     SessionMode.timer => 'Timer',
+    SessionMode.meditate => 'Meditate',
     SessionMode.music => 'Music',
   };
 
