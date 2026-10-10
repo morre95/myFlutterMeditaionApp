@@ -23,7 +23,15 @@ class HistoryController extends ChangeNotifier {
 
   Future<void> _savePending() async {
     if (_unsaved.isEmpty) return;
-    final next = [..._sessions, ..._unsaved.values];
+    final knownIds = _sessions.map((session) => session.id).toSet();
+    final additions = _unsaved.values
+        .where((session) => !knownIds.contains(session.id))
+        .toList();
+    if (additions.isEmpty) {
+      _unsaved.clear();
+      return;
+    }
+    final next = [..._sessions, ...additions];
     await _repository.saveAll(next);
     _sessions = next;
     _unsaved.clear();
@@ -102,9 +110,8 @@ class HistoryController extends ChangeNotifier {
       outcome: outcome,
     );
     return _serialize(() async {
-      await _ensureLoaded();
-      if (_sessions.any((existing) => existing.id == session.id)) return;
       _unsaved.putIfAbsent(session.id, () => session);
+      await _ensureLoaded();
       await _savePending();
       notifyListeners();
     });

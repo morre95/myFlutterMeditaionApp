@@ -33,3 +33,13 @@ Additional acceptance coverage: delayed load/write + overlapping records and dup
 ## Validation and limits
 
 Full suite: 211 passed. Analyze and formatting validated on touched files. The first full run found one existing timer ownership test using fake ticks without injecting elapsed clock; its system clock seam is now explicit. No physical Android timing/network test was performed. Music's native adapter has no buffering-status signal: its active clock follows reported playing status, so undetected native stalls remain a real-device limitation for ticket 11, rather than a new buffering/recovery subsystem in this ticket. Streamed Meditate retains ticket 5's conservative reporting/poll precision limits. Failed writes can be retried during the process lifetime; failed writes are not claimed to survive process termination.
+
+## Integration review fixes
+
+One review-fix implementer branch, `ticket/8-review-fixes`, started at integration merge `7ecb3b0` and addresses all confirmed review defects:
+
+- Leaving Timer via the screen's normal disposal path previously lost its running session. Public Start → 12 seconds → dispose reproduced missing history (`/tmp/ticket8-review-red-dispose.log`). Disposal now finalizes before teardown; completed → dispose remains one completed record.
+- Music Previous after a completed single track audibly began playback without a new identity, so subsequent Stop lost that listening session. Public single-track completion → Previous → four seconds → repeated Stop reproduced one record instead of two (`/tmp/ticket8-review-red-replay.log`). Restarting navigation after finalization now creates its own stable identity and remaining-track plan; ongoing navigation still retains the existing identity.
+- A failed initial history load previously discarded the finalized record before it reached the retry buffer. Public record failing its initial load → load retry → duplicate ID reproduced replacement of original 12s with 99s (`/tmp/ticket8-review-red-load.log`). Records now enter the pending buffer before initial load, and retries filter identities already persisted before writing, preserving the original outcome and measurement.
+
+Final review-fix validation: full suite 214 passed; `flutter analyze --no-pub` no issues; touched-file formatting and `git diff --check` clean. The same native timing and asynchronous persistence limitations described above remain.

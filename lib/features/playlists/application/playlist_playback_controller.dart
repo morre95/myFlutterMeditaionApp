@@ -271,6 +271,14 @@ class PlaylistPlaybackController extends ChangeNotifier {
         return;
       }
       _singleTrackMode = false;
+      if (_sessionId == null) {
+        _beginSession(
+          _playlistDuration(
+            playlist,
+            startIndex: _state.shuffleEnabled ? 0 : index,
+          ),
+        );
+      }
       _setState(
         _state.copyWith(
           status: PlaylistPlaybackStatus.playing,

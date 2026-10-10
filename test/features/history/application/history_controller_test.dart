@@ -8,6 +8,38 @@ import 'package:my_meditation_app/features/history/infrastructure/shared_prefere
 
 void main() {
   test(
+    'a failed initial load retains the finalized session for a later retry',
+    () async {
+      final repo = _FakeSessionRepository([])..failNextLoad = true;
+      final history = HistoryController(repository: repo);
+      await expectLater(
+        history.record(
+          const Duration(minutes: 1),
+          id: 'load-retry',
+          actualDuration: const Duration(seconds: 12),
+          mode: SessionMode.meditate,
+          outcome: SessionOutcome.endedEarly,
+        ),
+        throwsStateError,
+      );
+      await history.load();
+      await history.record(
+        const Duration(minutes: 1),
+        id: 'load-retry',
+        actualDuration: const Duration(seconds: 99),
+        mode: SessionMode.meditate,
+      );
+      final restored = HistoryController(repository: repo);
+      await restored.load();
+      expect(
+        restored.sessions.single.actualDuration,
+        const Duration(seconds: 12),
+      );
+      expect(restored.sessions.single.outcome, SessionOutcome.endedEarly);
+    },
+  );
+
+  test(
     'overlapping load and records preserve older data through delayed storage',
     () async {
       final repo =
@@ -284,12 +316,17 @@ class _FakeSessionRepository implements SessionRepository {
 
   List<MeditationSession> saved;
   bool failNextSave = false;
+  bool failNextLoad = false;
   Completer<void>? loadGate;
   Completer<void>? saveGate;
 
   @override
   Future<List<MeditationSession>> loadAll() async {
     await loadGate?.future;
+    if (failNextLoad) {
+      failNextLoad = false;
+      throw StateError('storage unavailable');
+    }
     return List.from(saved);
   }
 

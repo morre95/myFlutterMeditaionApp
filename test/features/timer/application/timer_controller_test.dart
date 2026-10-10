@@ -13,6 +13,39 @@ import 'package:my_meditation_app/features/history/domain/meditation_session.dar
 
 void main() {
   test(
+    'leaving Timer during a running session records its measured early ending',
+    () {
+      SharedPreferences.setMockInitialValues({});
+      fakeAsync((async) {
+        final history = HistoryController(
+          repository: SharedPreferencesSessionRepository(),
+        );
+        final timer = TimerController(
+          bellPlayer: _FakeBellPlayer(),
+          wakeLock: _FakeWakeLock(),
+          history: history,
+          clock: () => async.elapsed,
+        );
+        timer.setDuration(const Duration(minutes: 1));
+        timer.start();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 12));
+        timer.dispose();
+        async.flushMicrotasks();
+        expect(
+          history.sessions.single.actualDuration,
+          const Duration(seconds: 12),
+        );
+        expect(history.sessions.single.outcome, SessionOutcome.endedEarly);
+        expect(history.currentStreak, 0);
+        async.elapse(const Duration(minutes: 1));
+        async.flushMicrotasks();
+        expect(history.totalCount, 1);
+      });
+    },
+  );
+
+  test(
     'Reset from running notification ends once and never completes later',
     () {
       SharedPreferences.setMockInitialValues({});
@@ -202,6 +235,9 @@ void main() {
       expect(history.currentStreak, 1);
 
       controller.dispose();
+      async.flushMicrotasks();
+      expect(history.totalCount, 1);
+      expect(history.sessions.single.outcome, SessionOutcome.completed);
       history.dispose();
     });
   });
