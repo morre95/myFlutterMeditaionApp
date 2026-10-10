@@ -57,8 +57,8 @@ class MeditationSessionState {
 
 /// Runs one timed session whose active-time countdown governs its sound.
 ///
-/// Active time is measured with [ElapsedClock] while the sound is audibly
-/// playing, so loading gaps and late interface refreshes never change it.
+/// Local active time uses [ElapsedClock]. Streamed active time follows advancing
+/// media positions, so buffering and loading cannot consume meditation time.
 class MeditationSessionController extends ChangeNotifier {
   MeditationSessionController({
     required LocalAudioPlaybackController player,
@@ -106,6 +106,74 @@ class MeditationSessionController extends ChangeNotifier {
   Future<void>? _pendingPause;
   Future<void> _lastSave = Future<void>.value();
   bool _disposed = false;
+  // audioplayers has no native buffering state. Count only reported progress,
+  // and require explicit recovery after five seconds without advancing media.
+  Timer? _streamWatchdog;
+  Duration _streamPosition = Duration.zero;
+  bool get _isStream => _state.sound?.kind == AudioSourceKind.pCloud;
+
+  void _watchStream() {
+    _streamWatchdog?.cancel();
+    _streamWatchdog = Timer(const Duration(seconds: 5), () {
+      if (_state.status == MeditationSessionStatus.loading ||
+          _state.status == MeditationSessionStatus.running) {
+        _interruptStream('Sound is buffering. Resume to try again.');
+      }
+    });
+  }
+
+  void _interruptStream(String? message) {
+    _streamWatchdog?.cancel();
+    _streamWatchdog = null;
+    _setState(
+      _state.copyWith(
+        status: MeditationSessionStatus.paused,
+        errorMessage: message,
+      ),
+    );
+    late final Future<void> pending;
+    pending = _player.stop().whenComplete(() {
+      if (identical(_pendingPause, pending)) _pendingPause = null;
+    });
+    _pendingPause = pending;
+  }
+
+  void _onStreamChanged() {
+    final player = _player.state;
+    if (player.status == LocalPlaybackStatus.error) {
+      _interruptStream(player.errorMessage);
+      return;
+    }
+    if (player.status == LocalPlaybackStatus.playing && _pendingPause == null) {
+      if (_streamWatchdog == null) _watchStream();
+      final position = player.position;
+      if (position > _streamPosition) {
+        // Loading and retry seek events are excluded by the playing guard.
+        _activeElapsed += position - _streamPosition;
+        _streamPosition = position;
+        _setState(
+          _state.copyWith(
+            status: MeditationSessionStatus.running,
+            clearError: true,
+          ),
+        );
+        _watchStream();
+        if (remaining <= fadeDuration) _applyFade();
+        _checkDeadline();
+      }
+    } else if (player.status == LocalPlaybackStatus.completed) {
+      _streamWatchdog?.cancel();
+      _streamWatchdog = null;
+      if (_activeElapsed - _playThroughStart < minimumPlayThrough) {
+        _interruptStream('Sound ended before it could be played.');
+        return;
+      }
+      _playThroughStart = _activeElapsed;
+      _streamPosition = Duration.zero;
+      _setState(_state.copyWith(status: MeditationSessionStatus.loading));
+      unawaited(_player.play(_entry!));
+    }
+  }
 
   MeditationSessionState get state => _state;
 
@@ -173,6 +241,7 @@ class MeditationSessionController extends ChangeNotifier {
       return Future<void>.value();
     }
     _activeElapsed = Duration.zero;
+    _streamPosition = Duration.zero;
     _playThroughStart = Duration.zero;
     final entry = QueueEntry(
       id: sound.id,
@@ -192,6 +261,7 @@ class MeditationSessionController extends ChangeNotifier {
       action: () async {
         // A previous session may have ended faded out.
         await _player.setVolume(1);
+        if (_disposed || !identical(_entry, entry)) return;
         await _player.play(entry);
       },
       canRun: () => !_disposed && identical(_entry, entry),
@@ -202,7 +272,10 @@ class MeditationSessionController extends ChangeNotifier {
     if (_state.status != MeditationSessionStatus.running) {
       return Future<void>.value();
     }
+    final entry = _entry;
     if (_countingSince != null) _stopCounting();
+    _streamWatchdog?.cancel();
+    _streamWatchdog = null;
     _setState(_state.copyWith(status: MeditationSessionStatus.paused));
     // Stopping a repeat reload keeps a paused session silent.
     late final Future<void> pending;
@@ -210,6 +283,15 @@ class MeditationSessionController extends ChangeNotifier {
         (_player.state.status == LocalPlaybackStatus.playing
                 ? _player.pause()
                 : _player.stop())
+            .catchError((Object error) {
+              if (!_isStream) throw error;
+              if (identical(_entry, entry) &&
+                  identical(_pendingPause, pending)) {
+                _interruptStream(
+                  'Could not pause the sound. Resume to try again.',
+                );
+              }
+            })
             .whenComplete(() {
               if (identical(_pendingPause, pending)) _pendingPause = null;
             });
@@ -222,14 +304,18 @@ class MeditationSessionController extends ChangeNotifier {
     if (entry == null || _state.status != MeditationSessionStatus.paused) {
       return;
     }
-    _setState(_state.copyWith(status: MeditationSessionStatus.running));
+    final nextStatus = _isStream
+        ? MeditationSessionStatus.loading
+        : MeditationSessionStatus.running;
+    _setState(_state.copyWith(status: nextStatus, clearError: true));
     // Decide how to continue only once the native pause has landed.
     await _pendingPause;
-    if (_state.status != MeditationSessionStatus.running ||
-        !identical(_entry, entry)) {
+    if (_state.status != nextStatus || !identical(_entry, entry)) {
       return;
     }
-    if (_player.state.status == LocalPlaybackStatus.paused) {
+    if (_isStream) {
+      await _player.play(entry, position: _streamPosition);
+    } else if (_player.state.status == LocalPlaybackStatus.paused) {
       await _player.resume();
     } else {
       _playThroughStart = _activeElapsed;
@@ -244,6 +330,8 @@ class MeditationSessionController extends ChangeNotifier {
   }
 
   void _returnToSetup({String? errorMessage}) {
+    _streamWatchdog?.cancel();
+    _streamWatchdog = null;
     if (_countingSince != null) _stopCounting();
     _activeElapsed = Duration.zero;
     _entry = null;
@@ -258,8 +346,18 @@ class MeditationSessionController extends ChangeNotifier {
 
   void _onPlayerChanged() {
     final status = _state.status;
+    if (_isStream &&
+        status == MeditationSessionStatus.paused &&
+        _player.state.status == LocalPlaybackStatus.error) {
+      _interruptStream(_player.state.errorMessage);
+      return;
+    }
     if (status != MeditationSessionStatus.loading &&
         status != MeditationSessionStatus.running) {
+      return;
+    }
+    if (_isStream) {
+      _onStreamChanged();
       return;
     }
     switch (_player.state.status) {
@@ -318,6 +416,7 @@ class MeditationSessionController extends ChangeNotifier {
   void _checkDeadline() {
     if (remaining > Duration.zero) return;
     _stopCounting();
+    _streamWatchdog?.cancel();
     _setState(_state.copyWith(status: MeditationSessionStatus.completed));
     unawaited(_stopThenRingBell(_entry!));
   }
@@ -348,6 +447,7 @@ class MeditationSessionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _streamWatchdog?.cancel();
     _deadline?.cancel();
     _refresh?.cancel();
     _fade?.cancel();

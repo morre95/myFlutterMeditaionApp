@@ -1,5 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_service.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_playback_source_resolver.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -120,6 +125,81 @@ Future<void> _chooseSound(WidgetTester tester, String name) async {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('select a pCloud sound and recover with visible Resume', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      final auth = PCloudAuthController(store: _ConnectedStore());
+      await auth.loadStoredSession();
+      final service = PCloudService(
+        session: auth,
+        client: MockClient((request) async {
+          return http.Response(
+            jsonEncode(
+              request.url.path.contains('listfolder')
+                  ? {
+                      'result': 0,
+                      'metadata': {
+                        'contents': [
+                          {'name': 'cloud.wav', 'fileid': 42},
+                        ],
+                      },
+                    }
+                  : {
+                      'result': 0,
+                      'hosts': ['stream.example'],
+                      'path': '/rain',
+                    },
+            ),
+            200,
+          );
+        }),
+      );
+      app.deps = AppDependencies(
+        localAudioLibrary: app.library,
+        pcloudAuthController: auth,
+        pcloudService: service,
+        meditationPlaybackController: LocalAudioPlaybackController(
+          player: app.audio,
+          resolver: PCloudPlaybackSourceResolver(service: service),
+        ),
+        meditationBellPlayer: _SilentBellPlayer(),
+        clock: () => app.now,
+      );
+      await app.open(tester);
+      await _chooseSound(tester, 'rain.wav');
+      await tester.tap(find.text('Choose from pCloud'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Select sound'));
+      await tester.pump();
+      await _pumpUntil(
+        tester,
+        find.byKey(const Key('meditate-sounds-loading')),
+        expected: findsNothing,
+      );
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('cloud.wav'), findsOneWidget);
+      expect(find.text('rain.wav'), findsNothing);
+      await tester.tap(find.text('Start'));
+      await tester.pump();
+      expect(find.text('Preparing sound…'), findsOneWidget);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      app.audio._positions.add(const Duration(seconds: 8));
+      await tester.pump();
+      app.audio._durations.addError(StateError('offline'));
+      await tester.pump();
+      await _pumpUntil(tester, find.text('Resume'));
+      expect(app.audio.isPlaying, isFalse);
+      await tester.tap(find.text('Resume'));
+      await tester.pump();
+      expect(find.text('Preparing sound…'), findsOneWidget);
+      await tester.tap(find.text('End'));
+      await tester.pump();
+      await app.dispose(tester);
+    });
+  });
 
   testWidgets('setup offers imported sounds, 20 minutes, and a 1-120 range', (
     tester,
@@ -352,7 +432,8 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
 
   @override
   Future<void> load(PlayableMedia media) async {
-    if (!File(media.locator).existsSync()) {
+    if (media.kind == PlayableMediaKind.file &&
+        !File(media.locator).existsSync()) {
       throw FileSystemException('missing', media.locator);
     }
     loadCount++;
@@ -378,4 +459,10 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
 
   @override
   Future<void> setVolume(double volume) async {}
+}
+
+class _ConnectedStore extends _StubSessionStore {
+  @override
+  Future<PCloudSession?> read() async =>
+      const PCloudSession(authToken: 'test', apiHost: 'api.pcloud.com');
 }

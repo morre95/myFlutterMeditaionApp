@@ -77,10 +77,13 @@ class LocalAudioPlaybackController extends ChangeNotifier {
           ),
         );
       }
-    });
+    }, onError: _onNativeError);
     _positionSubscription = _player.positionStream.listen((position) {
-      _setState(_state.copyWith(position: _clampPosition(position)));
-    });
+      if (_state.status == LocalPlaybackStatus.playing ||
+          _state.status == LocalPlaybackStatus.paused) {
+        _setState(_state.copyWith(position: _clampPosition(position)));
+      }
+    }, onError: _onNativeError);
     _durationSubscription = _player.durationStream.listen((duration) {
       _setState(
         _state.copyWith(
@@ -88,7 +91,19 @@ class LocalAudioPlaybackController extends ChangeNotifier {
           position: _clampPosition(_state.position, duration: duration),
         ),
       );
-    });
+    }, onError: _onNativeError);
+  }
+
+  void _onNativeError(Object error) {
+    final entry = _state.currentEntry;
+    if (entry == null || _state.status == LocalPlaybackStatus.error) return;
+    _playbackGeneration++;
+    _setState(
+      _state.copyWith(
+        status: LocalPlaybackStatus.error,
+        errorMessage: 'Could not play ${entry.source.displayName}.',
+      ),
+    );
   }
 
   final LocalAudioPlayer _player;
@@ -106,7 +121,10 @@ class LocalAudioPlaybackController extends ChangeNotifier {
 
   LocalAudioPlaybackState get state => _state;
 
-  Future<void> play(QueueEntry entry) async {
+  Future<void> play(
+    QueueEntry entry, {
+    Duration position = Duration.zero,
+  }) async {
     if (_disposed) return;
     final generation = ++_playbackGeneration;
     _setState(
@@ -130,6 +148,12 @@ class LocalAudioPlaybackController extends ChangeNotifier {
       if (!_isCurrent(generation)) {
         return;
       }
+      if (position > Duration.zero) {
+        await _playerCommands.run(
+          () => _player.seek(position),
+          canRun: () => _isCurrent(generation),
+        );
+      }
       await _playerCommands.run(
         _player.play,
         canRun: () => _isCurrent(generation),
@@ -141,7 +165,7 @@ class LocalAudioPlaybackController extends ChangeNotifier {
         LocalAudioPlaybackState(
           status: LocalPlaybackStatus.playing,
           currentEntry: entry,
-          position: _state.position,
+          position: position,
           duration: _state.duration,
         ),
       );
@@ -304,6 +328,10 @@ abstract class LocalAudioPlayer {
 class AudioPlayersLocalPlayer implements LocalAudioPlayer {
   AudioPlayersLocalPlayer({ap.AudioPlayer? player})
     : _player = player ?? ap.AudioPlayer() {
+    _player.positionUpdater = ap.TimerPositionUpdater(
+      interval: const Duration(milliseconds: 200),
+      getPosition: _player.getCurrentPosition,
+    );
     unawaited(_player.setReleaseMode(ap.ReleaseMode.stop));
   }
 
