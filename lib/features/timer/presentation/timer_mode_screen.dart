@@ -40,6 +40,7 @@ class _TimerModeScreenState extends State<TimerModeScreen> {
         repository: deps.timerSettingsRepository,
         sourceResolver: deps.playbackSourceResolver,
         history: deps.historyController,
+        clock: deps.clock,
         ownership: deps.playbackOwnershipController,
       );
       _controller.load();

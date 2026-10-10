@@ -50,6 +50,11 @@ Copy the **`access_token`** value.
 - **Streaming**: at playback time `getfilelink` resolves a fresh temporary URL
   that audioplayers streams via `UrlSource`. Links are short-lived and never
   persisted — only the pCloud file id is stored in the playlist.
+- **Downloading**: the browser's Download action fetches the same
+  `getfilelink` URL and keeps an app-owned copy under the app support
+  directory (`pcloud_downloads/<fileid>/`). Playback prefers that copy, so a
+  downloaded sound plays without a connection; undownloaded sounds still
+  stream.
 - pCloud OAuth tokens do not expire unless revoked, so this is a one-time setup.
   Disconnect from **Settings** clears the stored token.
 

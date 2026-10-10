@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:my_meditation_app/features/library/application/local_audio_library.dart';
 import 'package:my_meditation_app/features/library/presentation/library_screen.dart';
@@ -12,6 +13,8 @@ import 'package:my_meditation_app/app/app_dependencies.dart';
 import 'package:my_meditation_app/app/app_scope.dart';
 import 'package:my_meditation_app/features/home/presentation/home_screen.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_download_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_download_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_service.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_session_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/domain/pcloud_config.dart';
@@ -596,6 +599,98 @@ void main() {
     controller.dispose();
     auth.dispose();
   });
+
+  testWidgets(
+    'Music plays a downloaded pCloud sound after restart without network',
+    (tester) async {
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues({});
+        final root = await Directory.systemTemp.createTemp('music-offline-');
+        const rain = AudioSource(
+          id: 'pcloud:100',
+          kind: AudioSourceKind.pCloud,
+          displayName: 'rain.mp3',
+          reference: '100',
+        );
+        final earlierSession = PCloudAuthController(
+          store: _StubSessionStore(
+            const PCloudSession(authToken: 't', apiHost: 'eapi.pcloud.com'),
+          ),
+        );
+        await earlierSession.loadStoredSession();
+        final online = PCloudService(
+          session: earlierSession,
+          client: MockClient((request) async {
+            if (request.url.path == '/getfilelink') {
+              return http.Response(
+                jsonEncode({
+                  'result': 0,
+                  'hosts': ['c1.pcloud.com'],
+                  'path': '/dl/rain.mp3',
+                }),
+                200,
+              );
+            }
+            return http.Response.bytes([7, 8, 9], 200);
+          }),
+        );
+        await PCloudDownloadController(
+          service: online,
+          store: PCloudDownloadStore(directory: root),
+        ).download(rain);
+
+        // The app restarts offline: pCloud is disconnected, so any cloud
+        // request would fail instead of reaching the network.
+        final playlists = PlaylistController(
+          repository: _FakePlaylistRepository([
+            Playlist(
+              id: 'evening',
+              name: 'Evening',
+              tracks: [PlaylistTrack(id: 'rain', source: rain)],
+              createdAt: DateTime(2026),
+            ),
+          ]),
+        );
+        final audio = _FakeLocalAudioPlayer();
+        late final AppDependencies deps;
+        deps = AppDependencies(
+          playlistController: playlists,
+          pcloudAuthController: PCloudAuthController(
+            store: _StubSessionStore(null),
+          ),
+          pcloudDownloadStore: PCloudDownloadStore(directory: root),
+          playbackController: LocalAudioPlaybackController(
+            player: audio,
+            resolver: _AppResolver(() => deps.playbackSourceResolver),
+          ),
+        );
+        await playlists.load();
+        await deps.pcloudDownloadController.load();
+        await tester.pumpWidget(
+          AppScope(
+            dependencies: deps,
+            child: const MaterialApp(
+              home: MusicModeScreen(
+                durationProbe: _FakeDurationProbe(Duration(minutes: 1)),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Play Evening'));
+        await tester.pumpAndSettle();
+
+        expect(
+          deps.playbackController.state.status,
+          LocalPlaybackStatus.playing,
+        );
+        expect(await File(audio.loadedPath!).readAsBytes(), [7, 8, 9]);
+        await tester.pumpWidget(const SizedBox.shrink());
+        deps.dispose();
+        await root.delete(recursive: true);
+      });
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -712,6 +807,18 @@ class _FakeLocalAudioPlayer implements LocalAudioPlayer {
 
   @override
   Future<void> setVolume(double volume) async {}
+}
+
+/// Resolves through the app's own resolver, which exists only once the
+/// dependencies that receive this injected controller are built.
+class _AppResolver implements PlaybackSourceResolver {
+  _AppResolver(this._resolver);
+
+  final PlaybackSourceResolver Function() _resolver;
+
+  @override
+  Future<PlayableMedia> resolve(AudioSource source) =>
+      _resolver().resolve(source);
 }
 
 class _DeferredSourceResolver implements PlaybackSourceResolver {

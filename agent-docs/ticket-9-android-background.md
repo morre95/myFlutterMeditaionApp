@@ -1,5 +1,19 @@
 # Issue #9: Android locked-screen playback
 
+## PR #18 conflict resolution against main
+
+Merged `origin/main` at `8a1ed65` (session history #8 and pCloud downloads #6).
+Preserved both history recording and Android audio-focus/command protections.
+History record IDs are separate from the background-control session tokens.
+Completion followed by synchronous End now balances the pending native-stop
+counter even when the completion listener takes over stopping; the existing
+reentrant-End test verifies one completed history record, silence and idle media
+state with no lingering protection. All 245 tests pass, including 60 session
+tests; `flutter analyze` reports no issues and `git diff --check` is clean.
+Physical evidence below applies to the earlier release APK identified there;
+the conflict-resolution merge was verified automatically, without reinstalling
+on the device. Genuine incoming-call verification remains pending.
+
 Spec: https://github.com/morre95/myFlutterMeditaionApp/issues/9 (dependency #3 closed).
 Integration base: `integration/meditation-android-background`, `ecda087`.
 Owned implementation branch: `ticket/9-android-background`.

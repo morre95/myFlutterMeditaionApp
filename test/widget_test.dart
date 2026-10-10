@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/app/app_dependencies.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_download_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_session_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/domain/pcloud_config.dart';
 import 'package:my_meditation_app/main.dart';
@@ -11,10 +14,13 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     // Inject a fake pCloud session store so startup does not touch the real
     // secure-storage plugin (unavailable in the test environment).
+    final downloads = Directory.systemTemp.createTempSync('app-downloads-');
+    addTearDown(() => downloads.deleteSync(recursive: true));
     final dependencies = AppDependencies(
       pcloudAuthController: PCloudAuthController(store: _FakeSessionStore()),
+      pcloudDownloadStore: PCloudDownloadStore(directory: downloads),
     );
-    await dependencies.init();
+    await tester.runAsync(dependencies.init);
 
     await tester.pumpWidget(MeditationApp(dependencies: dependencies));
     await tester.pump();

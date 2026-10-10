@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_service.dart';
@@ -11,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/app/app_dependencies.dart';
 import 'package:my_meditation_app/app/app_scope.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_auth_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_download_controller.dart';
+import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_download_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/application/pcloud_session_store.dart';
 import 'package:my_meditation_app/features/cloud/pcloud/domain/pcloud_config.dart';
 import 'package:my_meditation_app/features/home/presentation/home_screen.dart';
@@ -59,6 +62,9 @@ class _App {
     localAudioLibrary: library,
     meditationPlaybackController: LocalAudioPlaybackController(player: audio),
     meditationBellPlayer: _SilentBellPlayer(),
+    pcloudDownloadStore: PCloudDownloadStore(
+      directory: Directory('${root.path}/pcloud_downloads'),
+    ),
     clock: () => now,
     pcloudAuthController: PCloudAuthController(store: _StubSessionStore()),
   );
@@ -163,7 +169,15 @@ void main() {
         pcloudService: service,
         meditationPlaybackController: LocalAudioPlaybackController(
           player: app.audio,
-          resolver: PCloudPlaybackSourceResolver(service: service),
+          resolver: PCloudPlaybackSourceResolver(
+            service: service,
+            downloads: PCloudDownloadController(
+              service: service,
+              store: PCloudDownloadStore(
+                directory: Directory('${app.root.path}/pcloud_downloads'),
+              ),
+            ),
+          ),
         ),
         meditationBellPlayer: _SilentBellPlayer(),
         clock: () => app.now,

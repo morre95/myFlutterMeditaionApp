@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../../shared/domain/audio_source.dart';
 import '../../../shared/presentation/gradient_background.dart';
+import '../../cloud/pcloud/application/pcloud_download_controller.dart';
 import '../../cloud/pcloud/application/pcloud_service.dart';
 import '../../cloud/pcloud/domain/pcloud_config.dart';
 import '../../cloud/pcloud/domain/pcloud_listing.dart';
+import 'pcloud_download_actions.dart';
 
 /// Browses pCloud folders for playlist additions or Meditate sound selection.
 /// Actions are reported via [onAddFile]; selection owners may close the route.
@@ -13,6 +15,7 @@ class PCloudBrowserScreen extends StatefulWidget {
     super.key,
     required this.service,
     required this.onAddFile,
+    this.downloads,
     this.selectionMode = false,
   });
 
@@ -30,8 +33,13 @@ class PCloudBrowserScreen extends StatefulWidget {
   static void resetRememberedPath() => _rememberedPath = const [_rootCrumb];
 
   final PCloudService service;
+
   /// Shows a sound-selection action without playlist confirmation messages.
   final bool selectionMode;
+
+  /// Offers Download/Cancel/Retry and shows offline availability per file;
+  /// null hides them.
+  final PCloudDownloadController? downloads;
 
   /// Called when the user taps an audio file; returns true once it is added.
   final Future<bool> Function(AudioSource source) onAddFile;
@@ -149,6 +157,12 @@ class _PCloudBrowserScreenState extends State<PCloudBrowserScreen> {
                         child: ListTile(
                           leading: const Icon(Icons.audio_file),
                           title: Text(file.displayName),
+                          subtitle: widget.downloads == null
+                              ? null
+                              : PCloudDownloadActions(
+                                  downloads: widget.downloads!,
+                                  source: file,
+                                ),
                           trailing: IconButton(
                             tooltip: widget.selectionMode
                                 ? 'Select sound'
