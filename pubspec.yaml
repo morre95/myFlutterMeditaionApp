@@ -46,6 +46,8 @@ dependencies:
   # true). Move to 11.x in a later release, once installs have run a 10.x build.
   flutter_secure_storage: ^10.0.0
   wakelock_plus: ^1.7.0
+  audio_service: ^0.18.19
+  audio_session: ^0.2.4
 
 dev_dependencies:
   flutter_test:

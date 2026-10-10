@@ -336,16 +336,30 @@ abstract class LocalAudioPlayer {
 }
 
 class AudioPlayersLocalPlayer implements LocalAudioPlayer {
-  AudioPlayersLocalPlayer({ap.AudioPlayer? player})
-    : _player = player ?? ap.AudioPlayer() {
+  AudioPlayersLocalPlayer({
+    ap.AudioPlayer? player,
+    bool manageAudioFocus = true,
+  }) : _player = player ?? ap.AudioPlayer() {
     _player.positionUpdater = ap.TimerPositionUpdater(
       interval: const Duration(milliseconds: 200),
       getPosition: _player.getCurrentPosition,
     );
-    unawaited(_player.setReleaseMode(ap.ReleaseMode.stop));
+    _ready = Future.wait([
+      _player.setReleaseMode(ap.ReleaseMode.stop),
+      if (!manageAudioFocus)
+        _player.setAudioContext(
+          ap.AudioContext(
+            android: const ap.AudioContextAndroid(
+              audioFocus: ap.AndroidAudioFocus.none,
+              stayAwake: true,
+            ),
+          ),
+        ),
+    ]);
   }
 
   final ap.AudioPlayer _player;
+  late final Future<void> _ready;
 
   @override
   Stream<bool> get completedStream => _player.onPlayerComplete.map((_) => true);
@@ -358,6 +372,7 @@ class AudioPlayersLocalPlayer implements LocalAudioPlayer {
 
   @override
   Future<void> load(PlayableMedia media) async {
+    await _ready;
     final source = switch (media.kind) {
       PlayableMediaKind.file => ap.DeviceFileSource(media.locator),
       PlayableMediaKind.url => ap.UrlSource(media.locator),
