@@ -388,6 +388,7 @@ class TimerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _recordOutcome();
     _disposed = true;
     _bellGeneration++;
     _timer?.cancel();
