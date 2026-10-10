@@ -15,6 +15,13 @@ flutter run              # build & run on the selected device/emulator
 
 To stream audio from pCloud, see [Connecting to pCloud](#connecting-to-pcloud).
 
+## Importing local audio
+
+Use **Library → Local phone storage** or **Music Mode → Add files → From this
+device** to import WAV, MP3, FLAC, OGG, M4A, or AAC files. New imports retain
+app-owned copies across restarts and can play after the originals are moved or
+removed. Originals stay unchanged; existing playlist references remain supported.
+
 ## Tests & linting
 
 ```bash

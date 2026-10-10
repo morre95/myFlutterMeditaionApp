@@ -1,3 +1,5 @@
+import '../features/library/application/local_audio_library.dart';
+import '../features/library/application/local_wav_picker_service.dart';
 import '../features/cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../features/cloud/pcloud/application/pcloud_playback_source_resolver.dart';
 import '../features/cloud/pcloud/application/pcloud_service.dart';
@@ -23,6 +25,8 @@ import '../features/timer/infrastructure/shared_preferences_timer_settings_repos
 class AppDependencies {
   AppDependencies._({
     required this.playlistController,
+    required this.localAudioLibrary,
+    required this.localAudioPicker,
     required this.appSettingsController,
     required this.historyController,
     required this.favoritesController,
@@ -35,6 +39,8 @@ class AppDependencies {
 
   factory AppDependencies({
     PlaylistController? playlistController,
+    LocalAudioLibrary? localAudioLibrary,
+    LocalAudioFilePicker? localAudioPicker,
     AppSettingsController? appSettingsController,
     HistoryController? historyController,
     FavoritesController? favoritesController,
@@ -43,9 +49,13 @@ class AppDependencies {
     PlaybackSourceResolver? playbackSourceResolver,
     LocalAudioPlaybackController? playbackController,
   }) {
+    final library = localAudioLibrary ?? LocalAudioLibrary();
     final auth = pcloudAuthController ?? PCloudAuthController();
     final service = PCloudService(session: auth);
     return AppDependencies._(
+      localAudioLibrary: library,
+      localAudioPicker:
+          localAudioPicker ?? ManagedLocalAudioPicker(library: library),
       playlistController:
           playlistController ??
           PlaylistController(repository: SharedPreferencesPlaylistRepository()),
@@ -73,6 +83,8 @@ class AppDependencies {
     );
   }
 
+  final LocalAudioLibrary localAudioLibrary;
+  final LocalAudioFilePicker localAudioPicker;
   final PlaylistController playlistController;
   final AppSettingsController appSettingsController;
   final HistoryController historyController;

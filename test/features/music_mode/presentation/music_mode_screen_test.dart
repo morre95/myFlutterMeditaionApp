@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:my_meditation_app/features/library/application/local_audio_library.dart';
+import 'package:my_meditation_app/features/library/presentation/library_screen.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,9 +23,196 @@ import 'package:my_meditation_app/features/player/application/playback_source_re
 import 'package:my_meditation_app/features/playlists/application/playlist_controller.dart';
 import 'package:my_meditation_app/features/playlists/domain/playlist.dart';
 import 'package:my_meditation_app/features/playlists/domain/playlist_repository.dart';
+import 'package:my_meditation_app/features/playlists/infrastructure/shared_preferences_playlist_repository.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
 
 void main() {
+  for (final fromLibrary in [true, false]) {
+    testWidgets(
+      '${fromLibrary ? 'Library' : 'Music'} shows an import failure without adding a track',
+      (tester) async {
+        await tester.runAsync(() async {
+          SharedPreferences.setMockInitialValues({});
+          final root = await Directory.systemTemp.createTemp(
+            'ui-import-error-',
+          );
+          final library = LocalAudioLibrary(directory: root);
+          final playlists = PlaylistController(
+            repository: _FakePlaylistRepository([]),
+          );
+          await playlists.load();
+          await playlists.create('Morning');
+          final observedPicker = _ObservedPicker(
+            ManagedLocalAudioPicker(
+              library: library,
+              picker: _FakeLocalAudioFilePicker([
+                AudioSource(
+                  id: 'missing',
+                  kind: AudioSourceKind.localFile,
+                  displayName: 'rain.wav',
+                  reference: '${root.path}/missing.wav',
+                ),
+              ]),
+            ),
+          );
+          final deps = AppDependencies(
+            playlistController: playlists,
+            playbackController: LocalAudioPlaybackController(
+              player: _FakeLocalAudioPlayer(),
+            ),
+            localAudioLibrary: library,
+            localAudioPicker: observedPicker,
+            pcloudAuthController: PCloudAuthController(
+              store: _StubSessionStore(null),
+            ),
+          );
+          await tester.pumpWidget(
+            AppScope(
+              dependencies: deps,
+              child: MaterialApp(
+                home: fromLibrary
+                    ? const LibraryScreen()
+                    : const MusicModeScreen(
+                        durationProbe: _FakeDurationProbe(Duration(minutes: 1)),
+                      ),
+              ),
+            ),
+          );
+          await tester.tap(
+            find.text(fromLibrary ? 'Local phone storage' : 'Add files'),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.text(fromLibrary ? 'Morning' : 'From this device'),
+          );
+          // The screen handles the failure; the observer only waits for completion.
+          await observedPicker.finished.future;
+          await tester.pumpAndSettle();
+          expect(
+            find.text(
+              'Could not import audio. Check that the file is available and storage has space.',
+            ),
+            findsOneWidget,
+          );
+          expect(playlists.selectedPlaylist!.tracks, isEmpty);
+          expect(await library.loadSounds(), isEmpty);
+          await tester.pumpWidget(const SizedBox.shrink());
+          deps.dispose();
+          await root.delete(recursive: true);
+        });
+      },
+    );
+  }
+
+  for (final fromLibrary in [true, false]) {
+    testWidgets(
+      '${fromLibrary ? 'Library' : 'Music'} imports a durable copy and Music plays after original removal',
+      (tester) async {
+        await tester.runAsync(() async {
+          SharedPreferences.setMockInitialValues({});
+          final root = await Directory.systemTemp.createTemp('ui-import-');
+          final original = await File(
+            '${root.path}/rain.wav',
+          ).writeAsBytes([1, 2, 3]);
+          final library = LocalAudioLibrary(
+            directory: Directory('${root.path}/library'),
+          );
+          var playlists = PlaylistController(
+            repository: SharedPreferencesPlaylistRepository(),
+          );
+          await playlists.load();
+          await playlists.create('Morning');
+          var audio = _FakeLocalAudioPlayer();
+          final observedPicker = _ObservedPicker(
+            ManagedLocalAudioPicker(
+              library: library,
+              picker: _FakeLocalAudioFilePicker([
+                AudioSource(
+                  id: 'original',
+                  kind: AudioSourceKind.localFile,
+                  displayName: 'rain.wav',
+                  reference: original.path,
+                ),
+              ]),
+            ),
+          );
+          var deps = AppDependencies(
+            playlistController: playlists,
+            playbackController: LocalAudioPlaybackController(player: audio),
+            localAudioLibrary: library,
+            localAudioPicker: observedPicker,
+            pcloudAuthController: PCloudAuthController(
+              store: _StubSessionStore(null),
+            ),
+          );
+          Widget page(Widget screen) => AppScope(
+            dependencies: deps,
+            child: MaterialApp(home: screen),
+          );
+          await tester.pumpWidget(
+            page(
+              fromLibrary
+                  ? const LibraryScreen()
+                  : const MusicModeScreen(
+                      durationProbe: _FakeDurationProbe(Duration(minutes: 1)),
+                    ),
+            ),
+          );
+          await tester.tap(
+            find.text(fromLibrary ? 'Local phone storage' : 'Add files'),
+          );
+          await tester.pumpAndSettle();
+          if (fromLibrary) {
+            await tester.tap(find.text('Morning'));
+          } else {
+            await tester.tap(find.text('From this device'));
+          }
+          await observedPicker.pending!;
+          await tester.pumpAndSettle();
+          expect(
+            playlists.selectedPlaylist!.tracks.single.source.storedSize,
+            3,
+          );
+          await original.delete();
+          await tester.pumpWidget(const SizedBox.shrink());
+          deps.dispose();
+          playlists = PlaylistController(
+            repository: SharedPreferencesPlaylistRepository(),
+          );
+          await playlists.load();
+          audio = _FakeLocalAudioPlayer();
+          deps = AppDependencies(
+            playlistController: playlists,
+            playbackController: LocalAudioPlaybackController(player: audio),
+            localAudioLibrary: LocalAudioLibrary(
+              directory: Directory('${root.path}/library'),
+            ),
+            pcloudAuthController: PCloudAuthController(
+              store: _StubSessionStore(null),
+            ),
+          );
+          await tester.pumpWidget(
+            page(
+              const MusicModeScreen(
+                durationProbe: _FakeDurationProbe(Duration(minutes: 1)),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byTooltip('Play Morning'));
+          await tester.pumpAndSettle();
+          expect(
+            deps.playbackController.state.status,
+            LocalPlaybackStatus.playing,
+          );
+          expect(await File(audio.loadedPath!).readAsBytes(), [1, 2, 3]);
+          await tester.pumpWidget(const SizedBox.shrink());
+          deps.dispose();
+          await root.delete(recursive: true);
+        });
+      },
+    );
+  }
   testWidgets(
     'music keeps its position and controls after leaving and returning',
     (tester) async {
@@ -525,4 +715,20 @@ class _DeferredSourceResolver implements PlaybackSourceResolver {
   final result = Completer<PlayableMedia>();
   @override
   Future<PlayableMedia> resolve(AudioSource source) => result.future;
+}
+
+class _ObservedPicker implements LocalAudioFilePicker {
+  _ObservedPicker(this.delegate);
+  final LocalAudioFilePicker delegate;
+  final finished = Completer<void>();
+  Future<List<AudioSource>>? pending;
+  @override
+  Future<List<AudioSource>> pickAudioFiles() => pending = _pick();
+  Future<List<AudioSource>> _pick() async {
+    try {
+      return await delegate.pickAudioFiles();
+    } finally {
+      finished.complete();
+    }
+  }
 }

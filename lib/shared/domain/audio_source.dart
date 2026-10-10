@@ -14,6 +14,7 @@ class AudioSource {
     required this.displayName,
     required this.reference,
     this.duration,
+    this.storedSize,
   });
 
   factory AudioSource.fromJson(Map<String, dynamic> json) {
@@ -24,6 +25,7 @@ class AudioSource {
       displayName: json['displayName'] as String,
       reference: json['reference'] as String,
       duration: durationMs != null ? Duration(milliseconds: durationMs) : null,
+      storedSize: json['storedSize'] as int?,
     );
   }
 
@@ -35,6 +37,9 @@ class AudioSource {
   final String reference;
 
   final Duration? duration;
+
+  /// Bytes in a completed app-owned copy; absent for legacy external sources.
+  final int? storedSize;
 
   bool get isSupportedAudio {
     const supported = {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac'};
@@ -49,6 +54,7 @@ class AudioSource {
       'displayName': displayName,
       'reference': reference,
       if (duration != null) 'durationMs': duration!.inMilliseconds,
+      if (storedSize != null) 'storedSize': storedSize,
     };
   }
 
@@ -58,6 +64,7 @@ class AudioSource {
     String? displayName,
     String? reference,
     Duration? duration,
+    int? storedSize,
   }) {
     return AudioSource(
       id: id ?? this.id,
@@ -65,6 +72,7 @@ class AudioSource {
       displayName: displayName ?? this.displayName,
       reference: reference ?? this.reference,
       duration: duration ?? this.duration,
+      storedSize: storedSize ?? this.storedSize,
     );
   }
 }

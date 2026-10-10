@@ -9,8 +9,9 @@ import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../favorites/application/favorites_controller.dart';
 import '../../history/application/history_controller.dart';
 import '../../library/application/local_wav_picker_service.dart'
-    show FilePickerLocalAudioPicker, LocalAudioFilePicker;
+    show ManagedLocalAudioPicker, LocalAudioFilePicker;
 import '../../library/presentation/pcloud_browser_screen.dart';
+import '../../library/application/local_audio_library.dart';
 import '../../player/application/local_audio_playback_controller.dart';
 import '../../playlists/application/playlist_controller.dart';
 import '../../playlists/application/playlist_playback_controller.dart';
@@ -72,7 +73,6 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   @override
   void initState() {
     super.initState();
-    _picker = widget._picker ?? FilePickerLocalAudioPicker();
     _durationProbe = widget._durationProbe ?? AudioPlayersDurationProbe();
   }
 
@@ -87,6 +87,10 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
         widget._playlistController != null &&
         widget._playbackController != null;
     final scope = injectedForTest ? null : AppScope.of(context);
+    _picker =
+        widget._picker ??
+        scope?.localAudioPicker ??
+        ManagedLocalAudioPicker(library: LocalAudioLibrary());
 
     _playlistController =
         widget._playlistController ?? scope!.playlistController;
@@ -261,10 +265,12 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
             ? 'No audio files were selected.'
             : 'Added ${added.length} audio file${added.length == 1 ? '' : 's'} to the playlist.';
       });
+    } on AudioImportFailure catch (error) {
+      if (mounted) setState(() => _message = error.message);
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _message = 'Could not select audio files.';
+        _message = 'Could not import audio files.';
       });
     } finally {
       if (mounted) {
