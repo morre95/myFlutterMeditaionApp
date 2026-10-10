@@ -6,6 +6,7 @@ import '../../../shared/domain/audio_source.dart';
 import '../../player/application/local_audio_playback_controller.dart';
 import '../../player/application/playback_ownership_controller.dart';
 import '../../player/domain/queue_entry.dart';
+import '../../settings/application/app_settings_controller.dart';
 import '../../timer/application/bell_ringer.dart';
 import '../../timer/domain/bell_selection.dart';
 import '../domain/meditation_settings.dart';
@@ -29,7 +30,8 @@ class MeditationSessionState {
   final MeditationSessionStatus status;
   final Duration duration;
 
-  /// Rings after the sound stops when [isBellEnabled].
+  /// The remembered bell choice, which Settings may since have removed or
+  /// disabled; [MeditationSessionController.bell] is the one that rings.
   final BellSelection bell;
   final bool isBellEnabled;
   final AudioSource? sound;
@@ -65,11 +67,13 @@ class MeditationSessionController extends ChangeNotifier {
     required BellRinger bell,
     required MeditationSettingsRepository repository,
     required PlaybackOwnershipController ownership,
+    required AppSettingsController appSettings,
     required ElapsedClock clock,
   }) : _player = player,
        _bell = bell,
        _repository = repository,
        _ownership = ownership,
+       _appSettings = appSettings,
        _clock = clock {
     _player.addListener(_onPlayerChanged);
   }
@@ -88,6 +92,7 @@ class MeditationSessionController extends ChangeNotifier {
   final BellRinger _bell;
   final MeditationSettingsRepository _repository;
   final PlaybackOwnershipController _ownership;
+  final AppSettingsController _appSettings;
   final ElapsedClock _clock;
 
   MeditationSessionState _state = MeditationSessionState(
@@ -108,6 +113,11 @@ class MeditationSessionController extends ChangeNotifier {
   bool _disposed = false;
 
   MeditationSessionState get state => _state;
+
+  /// The bell setup shows and completion rings: the remembered
+  /// [MeditationSessionState.bell] while Settings still offers it, otherwise
+  /// the fallback, so the two never differ.
+  BellSelection get bell => _appSettings.availableBellFor(_state.bell);
 
   Duration get remaining {
     final since = _countingSince;
@@ -326,7 +336,7 @@ class MeditationSessionController extends ChangeNotifier {
     await _player.stop();
     if (!_state.isBellEnabled) return;
     bool isCurrent() => !_disposed && identical(_entry, entry);
-    final bell = _state.bell;
+    final bell = this.bell;
     try {
       await _bell.ring(bell, canRun: isCurrent);
     } catch (_) {

@@ -24,8 +24,14 @@ class AppSettingsController extends ChangeNotifier {
       .where((b) => !_disabledBuiltInBellIds.contains(b.id))
       .toList();
 
-  bool isBuiltInBellEnabled(String id) =>
-      !_disabledBuiltInBellIds.contains(id);
+  /// The bell that is shown and rung for [selection]; see [availableBell].
+  BellSelection availableBellFor(BellSelection selection) => availableBell(
+    selection,
+    builtIns: enabledBuiltInBells,
+    customBells: _customBells,
+  );
+
+  bool isBuiltInBellEnabled(String id) => !_disabledBuiltInBellIds.contains(id);
 
   Future<void> load() async {
     _customBells = await _repository.loadCustomBells();

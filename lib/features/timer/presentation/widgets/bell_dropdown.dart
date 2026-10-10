@@ -20,19 +20,8 @@ class BellDropdown extends StatelessWidget {
   /// Null disables the picker.
   final ValueChanged<BellSelection>? onChanged;
 
-  /// Maps [selection] to a dropdown key, falling back to the first enabled
-  /// built-in bell if the selected bell was removed or disabled.
-  String _currentKey() {
-    final bell = selection;
-    if (bell.isCustom) {
-      final id = bell.source!.id;
-      if (customBells.any((b) => b.id == id)) return 'custom:$id';
-      return 'builtin:${builtIns.first.id}';
-    }
-    final name = bell.name;
-    if (builtIns.any((b) => b.id == name)) return 'builtin:$name';
-    return 'builtin:${builtIns.first.id}';
-  }
+  static String _keyFor(BellSelection bell) =>
+      bell.isCustom ? 'custom:${bell.source!.id}' : 'builtin:${bell.name}';
 
   BellSelection? _selectionFor(String key) {
     if (key.startsWith('custom:')) {
@@ -49,7 +38,9 @@ class BellDropdown extends StatelessWidget {
   Widget build(BuildContext context) {
     final onChanged = this.onChanged;
     return DropdownButtonFormField<String>(
-      initialValue: _currentKey(),
+      initialValue: _keyFor(
+        availableBell(selection, builtIns: builtIns, customBells: customBells),
+      ),
       decoration: const InputDecoration(
         labelText: 'Ending bell',
         border: OutlineInputBorder(),

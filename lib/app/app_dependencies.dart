@@ -152,6 +152,7 @@ class AppDependencies {
         ),
         repository: meditationSettingsRepository,
         ownership: playbackOwnershipController,
+        appSettings: appSettingsController,
         clock: clock,
       );
 
