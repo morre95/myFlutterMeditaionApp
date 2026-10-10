@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../history/presentation/history_screen.dart';
 import '../../library/presentation/library_screen.dart';
+import '../../meditation/presentation/meditate_screen.dart';
 import '../../music_mode/presentation/music_mode_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
 import '../../timer/presentation/timer_mode_screen.dart';
@@ -25,6 +26,13 @@ class HomeScreen extends StatelessWidget {
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 16),
+              _HomeFeatureCard(
+                title: 'Meditate',
+                description: 'Meditate for a set time with one of your sounds.',
+                icon: Icons.spa,
+                onTap: () => _open(context, const MeditateScreen()),
+              ),
+              const SizedBox(height: 12),
               _HomeFeatureCard(
                 title: 'Music Mode',
                 description:

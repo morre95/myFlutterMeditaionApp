@@ -20,10 +20,12 @@ void main() {
     await tester.pump();
 
     expect(find.text('My Meditation'), findsOneWidget);
+    expect(find.text('Meditate'), findsOneWidget);
     expect(find.text('Music Mode'), findsOneWidget);
     expect(find.text('Timer Mode'), findsOneWidget);
     expect(find.text('Library'), findsOneWidget);
     expect(find.text('Progress'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Settings'), 100);
     expect(find.text('Settings'), findsOneWidget);
 
     expect(

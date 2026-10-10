@@ -19,8 +19,11 @@ void main() {
     await pumpScreen(tester);
 
     expect(find.text('Timer Mode'), findsOneWidget);
-    expect(find.byKey(const Key('timer-progress-indicator')), findsOneWidget);
-    expect(find.byKey(const Key('timer-remaining-time-text')), findsOneWidget);
+    expect(
+      find.byKey(const Key('countdown-progress-indicator')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('countdown-remaining-text')), findsOneWidget);
     expect(find.byKey(const Key('timer-duration-slider')), findsOneWidget);
     expect(find.byKey(const Key('timer-bell-dropdown')), findsOneWidget);
     expect(find.byKey(const Key('timer-start-pause-button')), findsOneWidget);
