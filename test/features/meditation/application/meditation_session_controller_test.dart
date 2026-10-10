@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
+import 'package:audio_service/audio_service.dart';
+import 'package:my_meditation_app/features/meditation/application/meditation_audio_handler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/features/meditation/application/meditation_session_controller.dart';
 import 'package:my_meditation_app/features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
@@ -34,8 +36,12 @@ const _rain = AudioSource(
 );
 
 class _Harness {
-  _Harness(this.async, {PlaybackSourceResolver? resolver, ElapsedClock? clock})
-    : audio = _AudioPlayer() {
+  _Harness(
+    this.async, {
+    PlaybackSourceResolver? resolver,
+    ElapsedClock? clock,
+    Future<bool> Function()? acquireAudioFocus,
+  }) : audio = _AudioPlayer() {
     bellPlayer = _BellPlayer(audio.log);
     player = LocalAudioPlaybackController(player: audio, resolver: resolver);
     session = MeditationSessionController(
@@ -48,6 +54,7 @@ class _Harness {
       ownership: ownership,
       appSettings: appSettings,
       clock: clock ?? () => async.elapsed,
+      acquireAudioFocus: acquireAudioFocus,
     );
   }
 
@@ -78,6 +85,262 @@ class _Harness {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('failed End stays recoverable and blocks starting another session', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      final handler = MeditationAudioHandler(session: h.session);
+      h.startWith(_rain, const Duration(minutes: 1));
+      h.audio.stopError = StateError('native Stop rejected');
+      h.audio.pauseError = StateError('native Pause rejected');
+      handler.stop();
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      expect(h.session.state.errorMessage, isNotNull);
+      expect(handler.playbackState.value.controls.single.action, MediaAction.stop);
+      h.session.start();
+      handler.play();
+      async.flushMicrotasks();
+      expect(h.audio.loaded, hasLength(1));
+      h.audio.stopError = null;
+      h.audio.pauseError = null;
+      handler.stop();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isFalse);
+      expect(h.session.state.status, MeditationSessionStatus.setup);
+      expect(handler.playbackState.value.processingState, AudioProcessingState.idle);
+      handler.dispose();
+      h.dispose();
+    });
+  });
+
+  test('latest Resume wins while an earlier focus request is delayed', () {
+    fakeAsync((async) {
+      final requests = <Completer<bool>>[];
+      final h = _Harness(
+        async,
+        acquireAudioFocus: () {
+          final request = Completer<bool>();
+          requests.add(request);
+          return request.future;
+        },
+      );
+      h.startWith(_rain, const Duration(minutes: 1));
+      requests.first.complete(true);
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 7));
+      h.session.pause();
+      async.flushMicrotasks();
+      h.session.resume();
+      async.flushMicrotasks();
+      h.session.pause();
+      async.flushMicrotasks();
+      h.session.resume();
+      async.flushMicrotasks();
+      async.elapse(const Duration(minutes: 2));
+      expect(h.audio.isPlaying, isFalse);
+      expect(h.session.remaining, const Duration(seconds: 53));
+      requests.last.complete(true);
+      async.flushMicrotasks();
+      requests[1].complete(false);
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.running);
+      expect(h.audio.isPlaying, isTrue);
+      expect(h.audio.loaded, hasLength(2));
+      h.dispose();
+    });
+  });
+
+  test('denied focus holds time until explicit successful Resume', () {
+    fakeAsync((async) {
+      var granted = false;
+      final h = _Harness(async, acquireAudioFocus: () async => granted);
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 2));
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      expect(h.session.state.errorMessage, isNotNull);
+      expect(h.session.remaining, const Duration(minutes: 1));
+      expect(h.audio.isPlaying, isFalse);
+      granted = true;
+      h.session.resume();
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.running);
+      expect(h.audio.isPlaying, isTrue);
+      h.dispose();
+    });
+  });
+
+  testWidgets('stale End on a fresh launch is harmless', (tester) async {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      final handler = MeditationAudioHandler(session: h.session);
+      handler.stop();
+      handler.play();
+      async.flushMicrotasks();
+      expect(tester.takeException(), isNull);
+      expect(handler.mediaItem.value, isNull);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.idle,
+      );
+      expect(h.audio.isPlaying, isFalse);
+      handler.dispose();
+      h.dispose();
+    });
+  });
+
+  test('interruption silences local audio even when native Pause fails', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(seconds: 9));
+      h.audio.pauseError = StateError('native pause rejected');
+      h.session.pause().catchError((Object _) {});
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isFalse);
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      async.elapse(const Duration(minutes: 2));
+      expect(h.session.remaining, const Duration(seconds: 51));
+      h.dispose();
+    });
+  });
+
+  test('End keeps background protection until native sound stops', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      final handler = MeditationAudioHandler(session: h.session);
+      h.startWith(_rain, const Duration(minutes: 1));
+      h.audio.stopReady = Completer<void>();
+      handler.stop();
+      handler.play();
+      async.flushMicrotasks();
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.ready,
+      );
+      h.audio.stopReady!.complete();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isFalse);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.idle,
+      );
+      handler.dispose();
+      h.dispose();
+    });
+  });
+
+  test('focus interruption and recovery require explicit Resume', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      final handler = MeditationAudioHandler(session: h.session);
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(seconds: 17));
+      handler.handleInterruption(began: true);
+      async.flushMicrotasks();
+      handler.handleInterruption(began: false);
+      async.elapse(const Duration(minutes: 3));
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      expect(h.audio.isPlaying, isFalse);
+      expect(h.session.remaining, const Duration(seconds: 43));
+      handler.play();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isTrue);
+      handler.dispose();
+      h.dispose();
+    });
+  });
+
+  test('End during focus acquisition never starts audio', () {
+    fakeAsync((async) {
+      final focus = Completer<bool>();
+      final h = _Harness(async, acquireAudioFocus: () => focus.future);
+      h.startWith(_rain, const Duration(minutes: 1));
+      expect(h.audio.isPlaying, isFalse);
+      h.session.end();
+      async.flushMicrotasks();
+      focus.complete(true);
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.setup);
+      expect(h.audio.isPlaying, isFalse);
+      h.dispose();
+    });
+  });
+
+  test('an old notification cannot control the next session', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      final handler = MeditationAudioHandler(session: h.session);
+      h.startWith(_rain, const Duration(minutes: 1));
+      final oldId = handler.mediaItem.value!.id;
+      handler.stop();
+      async.flushMicrotasks();
+      h.session.start();
+      async.flushMicrotasks();
+      handler.customAction('end:$oldId', {'sessionId': oldId});
+      handler.customAction('pause:$oldId', {'sessionId': oldId});
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.running);
+      expect(h.audio.isPlaying, isTrue);
+      final currentId = handler.mediaItem.value!.id;
+      handler.customAction('pause:$currentId', {'sessionId': currentId});
+      async.flushMicrotasks();
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      handler.dispose();
+      h.dispose();
+    });
+  });
+
+  test('background controls share the session and cannot resume after End', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      final handler = MeditationAudioHandler(session: h.session);
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.flushMicrotasks();
+      expect(handler.playbackState.value.playing, isTrue);
+      expect(handler.mediaItem.value!.title, 'rain.wav');
+      async.elapse(const Duration(seconds: 12));
+      handler.pause();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isFalse);
+      async.elapse(const Duration(minutes: 2));
+      expect(h.session.remaining, const Duration(seconds: 48));
+      handler.play();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isTrue);
+      handler.stop();
+      handler.play();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isFalse);
+      expect(h.session.state.status, MeditationSessionStatus.setup);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.idle,
+      );
+      handler.dispose();
+      h.dispose();
+    });
+  });
+
+  test('interruption while loading requires explicit Resume', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      h.audio.loadReady = Completer<void>();
+      h.startWith(_rain, const Duration(minutes: 1));
+      h.session.pause();
+      async.flushMicrotasks();
+      h.audio.loadReady!.complete();
+      async.flushMicrotasks();
+      async.elapse(const Duration(minutes: 2));
+      expect(h.session.state.status, MeditationSessionStatus.paused);
+      expect(h.audio.isPlaying, isFalse);
+      expect(h.session.remaining, const Duration(minutes: 1));
+      h.session.resume();
+      async.flushMicrotasks();
+      expect(h.audio.isPlaying, isTrue);
+      h.dispose();
+    });
+  });
 
   test('stream loading and stalled positions consume no meditation time', () {
     fakeAsync((async) {

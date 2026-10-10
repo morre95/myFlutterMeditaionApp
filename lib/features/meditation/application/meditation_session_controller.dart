@@ -69,12 +69,14 @@ class MeditationSessionController extends ChangeNotifier {
     required PlaybackOwnershipController ownership,
     required AppSettingsController appSettings,
     required ElapsedClock clock,
+    Future<bool> Function()? acquireAudioFocus,
   }) : _player = player,
        _bell = bell,
        _repository = repository,
        _ownership = ownership,
        _appSettings = appSettings,
-       _clock = clock {
+       _clock = clock,
+       _acquireAudioFocus = acquireAudioFocus {
     _player.addListener(_onPlayerChanged);
   }
 
@@ -94,6 +96,12 @@ class MeditationSessionController extends ChangeNotifier {
   final PlaybackOwnershipController _ownership;
   final AppSettingsController _appSettings;
   final ElapsedClock _clock;
+  final Future<bool> Function()? _acquireAudioFocus;
+  int _command = 0;
+  int _pendingStops = 0;
+  bool _stopFailed = false;
+  bool get isSilencing => _pendingStops > 0 || _stopFailed;
+  bool get hasSilencingError => _stopFailed;
 
   MeditationSessionState _state = MeditationSessionState(
     status: MeditationSessionStatus.setup,
@@ -111,6 +119,9 @@ class MeditationSessionController extends ChangeNotifier {
   Future<void>? _pendingPause;
   Future<void> _lastSave = Future<void>.value();
   bool _disposed = false;
+  int _sessionId = 0;
+  final int _sessionEpoch = DateTime.now().microsecondsSinceEpoch;
+  String get sessionId => '$_sessionEpoch-$_sessionId';
   // audioplayers has no native buffering state. Count only reported progress,
   // and require explicit recovery after five seconds without advancing media.
   Timer? _streamWatchdog;
@@ -128,6 +139,7 @@ class MeditationSessionController extends ChangeNotifier {
   }
 
   void _interruptStream(String? message) {
+    ++_command;
     _streamWatchdog?.cancel();
     _streamWatchdog = null;
     _setState(
@@ -264,9 +276,12 @@ class MeditationSessionController extends ChangeNotifier {
 
   Future<void> start() {
     final sound = _state.sound;
-    if (sound == null || !_isSetup) {
+    if (sound == null || !_isSetup || isSilencing) {
       return Future<void>.value();
     }
+    _sessionId++;
+    final command = ++_command;
+    _pendingPause = null;
     _activeElapsed = Duration.zero;
     _streamPosition = Duration.zero;
     _playThroughStart = Duration.zero;
@@ -286,6 +301,7 @@ class MeditationSessionController extends ChangeNotifier {
       owner: this,
       deactivate: end,
       action: () async {
+        if (!await _requestFocus(entry, command)) return;
         // A previous session may have ended faded out.
         try {
           await _player.setVolume(1);
@@ -299,7 +315,12 @@ class MeditationSessionController extends ChangeNotifier {
           }
           return;
         }
-        if (_disposed || !identical(_entry, entry)) return;
+        if (_disposed ||
+            !identical(_entry, entry) ||
+            _state.status != MeditationSessionStatus.loading ||
+            _command != command) {
+          return;
+        }
         await _player.play(entry);
       },
       canRun: () => !_disposed && identical(_entry, entry),
@@ -307,9 +328,11 @@ class MeditationSessionController extends ChangeNotifier {
   }
 
   Future<void> pause() {
-    if (_state.status != MeditationSessionStatus.running) {
+    if (_state.status != MeditationSessionStatus.running &&
+        _state.status != MeditationSessionStatus.loading) {
       return Future<void>.value();
     }
+    ++_command;
     final entry = _entry;
     if (_countingSince != null) _stopCounting();
     _streamWatchdog?.cancel();
@@ -322,7 +345,6 @@ class MeditationSessionController extends ChangeNotifier {
                 ? _player.pause()
                 : _player.stop())
             .catchError((Object error) {
-              if (!_isStream) throw error;
               if (identical(_entry, entry) &&
                   identical(_pendingPause, pending)) {
                 _interruptStream(
@@ -339,18 +361,24 @@ class MeditationSessionController extends ChangeNotifier {
 
   Future<void> resume() async {
     final entry = _entry;
-    if (entry == null || _state.status != MeditationSessionStatus.paused) {
+    if (entry == null ||
+        _state.status != MeditationSessionStatus.paused ||
+        isSilencing) {
       return;
     }
+    final command = ++_command;
     final nextStatus = _isStream
         ? MeditationSessionStatus.loading
         : MeditationSessionStatus.running;
     _setState(_state.copyWith(status: nextStatus, clearError: true));
     // Decide how to continue only once the native pause has landed.
     await _pendingPause;
-    if (_state.status != nextStatus || !identical(_entry, entry)) {
+    if (_command != command ||
+        _state.status != nextStatus ||
+        !identical(_entry, entry)) {
       return;
     }
+    if (!await _requestFocus(entry, command)) return;
     if (_isStream) {
       await _player.play(entry, position: _streamPosition);
     } else if (_player.state.status == LocalPlaybackStatus.paused) {
@@ -361,13 +389,52 @@ class MeditationSessionController extends ChangeNotifier {
     }
   }
 
+  Future<bool> _requestFocus(QueueEntry entry, int command) async {
+    bool granted;
+    try {
+      granted = await (_acquireAudioFocus?.call() ?? Future.value(true));
+    } catch (_) {
+      granted = false;
+    }
+    if (_disposed || !identical(_entry, entry) || command != _command) {
+      return false;
+    }
+    if (!granted) {
+      if (_countingSince != null) _stopCounting();
+      _setState(
+        _state.copyWith(
+          status: MeditationSessionStatus.paused,
+          errorMessage: 'Audio is unavailable. Resume to try again.',
+        ),
+      );
+    }
+    return granted;
+  }
+
   /// Also silences a ringing bell, so another mode never sounds over it.
   Future<void> end() async {
+    if (_isSetup && _entry == null && !isSilencing) return;
+    _pendingStops++;
     _returnToSetup();
-    await Future.wait([_player.stop(), _bell.stop()]);
+    try {
+      await Future.wait([_player.stop(pauseOnFailure: true), _bell.stop()]);
+      _stopFailed = false;
+    } catch (_) {
+      _stopFailed = true;
+      _setState(
+        _state.copyWith(
+          status: MeditationSessionStatus.paused,
+          errorMessage: 'Could not silence the sound. Try End again.',
+        ),
+      );
+    } finally {
+      _pendingStops--;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   void _returnToSetup({String? errorMessage}) {
+    ++_command;
     _streamWatchdog?.cancel();
     _streamWatchdog = null;
     if (_countingSince != null) _stopCounting();
@@ -460,12 +527,28 @@ class MeditationSessionController extends ChangeNotifier {
     if (remaining > Duration.zero) return;
     _stopCounting();
     _streamWatchdog?.cancel();
+    _pendingStops++;
     _setState(_state.copyWith(status: MeditationSessionStatus.completed));
     unawaited(_stopThenRingBell(_entry!));
   }
 
   Future<void> _stopThenRingBell(QueueEntry entry) async {
-    await _player.stop();
+    try {
+      await _player.stop(pauseOnFailure: true);
+      _stopFailed = false;
+    } catch (_) {
+      _stopFailed = true;
+      _setState(
+        _state.copyWith(
+          status: MeditationSessionStatus.paused,
+          errorMessage: 'Could not silence the sound. Try End again.',
+        ),
+      );
+      return;
+    } finally {
+      _pendingStops--;
+      if (!_disposed) notifyListeners();
+    }
     if (!_state.isBellEnabled) return;
     bool isCurrent() => !_disposed && identical(_entry, entry);
     final bell = this.bell;

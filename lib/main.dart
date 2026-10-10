@@ -8,6 +8,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final dependencies = AppDependencies();
   await dependencies.init();
+  await dependencies.initBackgroundAudio();
   runApp(MeditationApp(dependencies: dependencies));
 }
 
