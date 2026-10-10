@@ -84,3 +84,26 @@ call interruption and headphone disconnection, no auto-resume, explicit backgrou
 Resume and silence after End, plus release networking/manifest/resource inspection.
 Prepared fixtures: `/tmp/meditation-issue-9-evidence/issue9-long-90s.wav` and
 `issue9-loop-4s.wav`. Parent owns device interaction and evidence capture.
+
+## Independent review fix: ending bell lifetime
+
+Review `/tmp/issue-9-review.md` identified that foreground/focus protection ended
+before custom bell resolution/playback, which can deny bell focus on locked
+Android 15+. The session now retains protection through resolution, native start
+and actual bell completion. `BellPlaybackLifecycle` supplies a separate completion
+future; `BellRinger.ring` still returns when start is accepted, preserving the
+silent Timer API and permitting End to enter the serialized stop queue immediately.
+The Android meditation bell uses native focus=none under the already-active
+session focus. Native completion/error, End and interruptions release protection;
+interruptions during the bell preserve the completed session and zero remaining
+time and never resume the bell. End cancels pending resolution via session identity.
+
+Observed red/green through the approved controller/handler seam: a held custom
+bell resolver previously made the handler idle at deadline; now it stays ready
+with End available during resolution and audible playback, then becomes idle on
+completion. An interruption during the ending bell now stops it while preserving
+completion/accounting, rather than ignoring it or restarting a session. Parent
+must verify audible built-in and custom bell at the locked release deadline.
+
+Review-fix final verification: `flutter analyze` clean; full suite 212 tests passed
+(`/tmp/issue-9-bell-final-tests.log`); `git diff --check` clean. Phone untouched.

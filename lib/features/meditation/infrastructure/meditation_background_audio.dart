@@ -61,6 +61,7 @@ class MeditationBackgroundAudio {
   void _releaseIfInactive() {
     final status = _session.state.status;
     if (_session.isSilencing ||
+        _session.isFinishingBell ||
         status == MeditationSessionStatus.loading ||
         status == MeditationSessionStatus.running) {
       return;

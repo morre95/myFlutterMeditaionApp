@@ -40,6 +40,7 @@ class _Harness {
     this.async, {
     PlaybackSourceResolver? resolver,
     ElapsedClock? clock,
+    PlaybackSourceResolver? bellResolver,
     Future<bool> Function()? acquireAudioFocus,
   }) : audio = _AudioPlayer() {
     bellPlayer = _BellPlayer(audio.log);
@@ -48,7 +49,7 @@ class _Harness {
       player: player,
       bell: BellRinger(
         player: bellPlayer,
-        sourceResolver: const LocalPlaybackSourceResolver(),
+        sourceResolver: bellResolver ?? const LocalPlaybackSourceResolver(),
       ),
       repository: SharedPreferencesMeditationSettingsRepository(),
       ownership: ownership,
@@ -86,6 +87,75 @@ class _Harness {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('an interruption silences the ending bell without auto-resume', () {
+    fakeAsync((async) {
+      final h = _Harness(async);
+      final handler = MeditationAudioHandler(session: h.session);
+      h.startWith(_rain, const Duration(minutes: 1));
+      async.elapse(const Duration(minutes: 1));
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.ready,
+      );
+      handler.handleInterruption(began: true);
+      async.flushMicrotasks();
+      handler.handleInterruption(began: false);
+      async.flushMicrotasks();
+      expect(h.audio.log.last, 'bell stop');
+      expect(h.session.state.status, MeditationSessionStatus.completed);
+      expect(h.session.remaining, Duration.zero);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.idle,
+      );
+      expect(h.audio.isPlaying, isFalse);
+      handler.dispose();
+      h.dispose();
+    });
+  });
+
+  test(
+    'background protection covers resolving and playing the ending bell',
+    () {
+      fakeAsync((async) {
+        final resolver = _StreamResolver()
+          ..pending = Completer<PlayableMedia>();
+        final h = _Harness(async, bellResolver: resolver);
+        final handler = MeditationAudioHandler(session: h.session);
+        h.appSettings.addCustomBell(_cloud);
+        h.session.selectBell(const BellSelection.custom(_cloud));
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(minutes: 1));
+        expect(h.session.state.status, MeditationSessionStatus.completed);
+        expect(h.session.remaining, Duration.zero);
+        expect(
+          handler.playbackState.value.processingState,
+          AudioProcessingState.ready,
+        );
+        expect(
+          handler.playbackState.value.controls.single.action,
+          MediaAction.stop,
+        );
+        resolver.pending!.complete(
+          const PlayableMedia.url('https://example.test/bell'),
+        );
+        async.flushMicrotasks();
+        expect(
+          handler.playbackState.value.processingState,
+          AudioProcessingState.ready,
+        );
+        h.bellPlayer.finish();
+        async.flushMicrotasks();
+        expect(
+          handler.playbackState.value.processingState,
+          AudioProcessingState.idle,
+        );
+        handler.dispose();
+        h.dispose();
+      });
+    },
+  );
+
   test('failed End stays recoverable and blocks starting another session', () {
     fakeAsync((async) {
       final h = _Harness(async);
@@ -97,7 +167,10 @@ void main() {
       async.flushMicrotasks();
       expect(h.session.state.status, MeditationSessionStatus.paused);
       expect(h.session.state.errorMessage, isNotNull);
-      expect(handler.playbackState.value.controls.single.action, MediaAction.stop);
+      expect(
+        handler.playbackState.value.controls.single.action,
+        MediaAction.stop,
+      );
       h.session.start();
       handler.play();
       async.flushMicrotasks();
@@ -108,7 +181,10 @@ void main() {
       async.flushMicrotasks();
       expect(h.audio.isPlaying, isFalse);
       expect(h.session.state.status, MeditationSessionStatus.setup);
-      expect(handler.playbackState.value.processingState, AudioProcessingState.idle);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.idle,
+      );
       handler.dispose();
       h.dispose();
     });
@@ -1241,7 +1317,11 @@ Playlist _playlist() => Playlist(
 );
 
 /// Records into the session player's log so ordering is observable.
-class _BellPlayer implements BellPlayer {
+class _BellPlayer implements BellPlayer, BellPlaybackLifecycle {
+  @override
+  Future<void> get playbackFinished => finished.future;
+  var finished = Completer<void>();
+  void finish() => finished.complete();
   _BellPlayer(this.log);
 
   final List<String> log;
@@ -1250,17 +1330,22 @@ class _BellPlayer implements BellPlayer {
   @override
   Future<void> playAsset(String assetPath) async {
     if (error != null) throw error!;
+    finished = Completer<void>();
     log.add('bell $assetPath');
   }
 
   @override
   Future<void> playMedia(PlayableMedia media) async {
     if (error != null) throw error!;
+    finished = Completer<void>();
     log.add('bell ${media.locator}');
   }
 
   @override
-  Future<void> stop() async => log.add('bell stop');
+  Future<void> stop() async {
+    log.add('bell stop');
+    if (!finished.isCompleted) finished.complete();
+  }
 
   @override
   void dispose() {}

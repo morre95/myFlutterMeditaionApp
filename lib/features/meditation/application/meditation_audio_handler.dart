@@ -20,9 +20,11 @@ class MeditationAudioHandler extends BaseAudioHandler {
         state.status == MeditationSessionStatus.loading;
     final paused = state.status == MeditationSessionStatus.paused;
     final stopping = _session.isSilencing;
+    final ringing = _session.isFinishingBell;
     final failedStop = _session.hasSilencingError;
     final ended =
         !stopping &&
+        !ringing &&
         (state.status == MeditationSessionStatus.setup ||
             state.status == MeditationSessionStatus.completed);
     mediaItem.add(
@@ -40,7 +42,7 @@ class MeditationAudioHandler extends BaseAudioHandler {
         controls: ended || (stopping && !failedStop)
             ? []
             : [
-                if (!failedStop)
+                if (!failedStop && !ringing)
                   paused ? MediaControl.play : MediaControl.pause,
                 const MediaControl(
                   androidIcon: 'drawable/audio_service_stop',
@@ -50,7 +52,7 @@ class MeditationAudioHandler extends BaseAudioHandler {
               ],
         androidCompactActionIndices: ended || (stopping && !failedStop)
             ? []
-            : failedStop
+            : failedStop || ringing
             ? [0]
             : [0, 1],
         processingState: ended
@@ -59,7 +61,7 @@ class MeditationAudioHandler extends BaseAudioHandler {
             ? AudioProcessingState.loading
             : AudioProcessingState.ready,
         // Loading must start the foreground service before focus/playback.
-        playing: active || stopping,
+        playing: active || stopping || ringing,
         updatePosition: state.duration - _session.remaining,
         speed: state.status == MeditationSessionStatus.running ? 1 : 0,
       ),
