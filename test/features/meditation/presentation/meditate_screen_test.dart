@@ -321,6 +321,44 @@ void main() {
     });
   });
 
+  testWidgets('Device storage keeps the sound of an active session', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      await app.open(tester);
+      await _chooseSound(tester, 'rain.wav');
+      await tester.tap(find.text('Start'));
+      await _pumpUntil(tester, find.text('Pause'));
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Library'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Device storage'));
+      await _pumpUntil(tester, find.byTooltip('Remove rain.wav'));
+      // Taps during the route transition land off-screen.
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Remove rain.wav'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+      await _pumpUntil(
+        tester,
+        find.text(
+          'rain.wav is playing in an active session. '
+          'End the session before removing it.',
+        ),
+      );
+
+      expect(File(app.sound!.reference).existsSync(), isTrue);
+      expect(app.audio.isPlaying, isTrue);
+      await app.deps.meditationSessionController.end();
+      await tester.pumpWidget(const SizedBox.shrink());
+      app.deps.dispose();
+      await app.root.delete(recursive: true);
+    });
+  });
+
   testWidgets('the ending bell can be switched off', (tester) async {
     await tester.runAsync(() async {
       final app = await _App.create();

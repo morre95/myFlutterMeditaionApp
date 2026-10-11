@@ -76,8 +76,7 @@ class PCloudDownloadController extends ChangeNotifier {
 
   /// Copies currently advertised as available offline.
   List<PCloudOfflineCopy> get offlineCopies => [
-    for (final state in _states.values)
-      if (state.copy case final copy?) copy,
+    for (final state in _states.values) ?state.copy,
   ];
 
   /// The copy of [source] if its audio is still complete on disk; a copy

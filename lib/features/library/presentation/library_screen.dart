@@ -9,7 +9,9 @@ import '../../cloud/pcloud/application/pcloud_service.dart';
 import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../playlists/application/playlist_controller.dart';
 import '../application/local_wav_picker_service.dart';
+import '../application/device_sound_catalog.dart';
 import '../application/local_audio_library.dart';
+import 'device_storage_screen.dart';
 import 'pcloud_browser_screen.dart';
 
 /// Imports durable local copies, adds pCloud references to playlists, and
@@ -27,6 +29,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   late final PCloudService _pcloudService;
   late final PCloudDownloadController _pcloudDownloads;
   late final LocalAudioFilePicker _picker;
+  late final DeviceSoundCatalog _deviceSounds;
   bool _resolved = false;
   bool _busy = false;
   String? _message;
@@ -42,6 +45,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _pcloudAuth = scope.pcloudAuthController;
     _pcloudService = scope.pcloudService;
     _pcloudDownloads = scope.pcloudDownloadController;
+    _deviceSounds = scope.deviceSoundCatalog;
   }
 
   /// Ensures there is a target playlist, prompting to pick or create one.
@@ -200,6 +204,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   const SizedBox(height: 12),
                   _buildPCloudCard(),
+                  const SizedBox(height: 12),
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.storage),
+                      title: const Text('Device storage'),
+                      subtitle: const Text(
+                        'See stored sounds and their sizes, or remove copies.',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              DeviceStorageScreen(catalog: _deviceSounds),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               );
             },
