@@ -110,6 +110,9 @@ class MeditationSessionController extends ChangeNotifier {
   Future<void> _checkpointWrites = Future<void>.value();
   Timer? _checkpointTimer;
 
+  /// The session whose checkpoint the latest queued write leaves stored.
+  String? _checkpointSessionId;
+
   /// A restored session has nothing loaded natively until Resume.
   bool _needsReload = false;
   Duration _resumePosition = Duration.zero;
@@ -304,6 +307,7 @@ class MeditationSessionController extends ChangeNotifier {
   void _restore(MeditationCheckpoint checkpoint) {
     _sessionId++;
     _historySessionId = checkpoint.sessionId;
+    _checkpointSessionId = checkpoint.sessionId;
     _activeElapsed = checkpoint.activeDuration;
     _streamPosition = checkpoint.soundPosition;
     _resumePosition = checkpoint.soundPosition;
@@ -359,10 +363,14 @@ class MeditationSessionController extends ChangeNotifier {
       bell: _state.bell,
       isBellEnabled: _state.isBellEnabled,
     );
+    _checkpointSessionId = id;
     _persistCheckpoint(() => _checkpoints.save(checkpoint));
   }
 
-  void _clearCheckpoint() => _persistCheckpoint(_checkpoints.clear);
+  void _clearCheckpoint() {
+    _checkpointSessionId = null;
+    _persistCheckpoint(_checkpoints.clear);
+  }
 
   /// Serialized, so a slow earlier write never lands after a later one.
   void _persistCheckpoint(Future<void> Function() write) {
@@ -728,30 +736,33 @@ class MeditationSessionController extends ChangeNotifier {
     }
   }
 
-  /// Records the session once and drops its recovery checkpoint.
+  /// Records the session once, then drops its recovery checkpoint.
   void _resolve(SessionOutcome outcome) {
     final id = _historySessionId;
     if (id == null) return;
     _historySessionId = null;
     _checkpointTimer?.cancel();
     _checkpointTimer = null;
-    _clearCheckpoint();
-    final actual = _state.duration - remaining;
-    unawaited(
-      _history
-          ?.record(
-            _state.duration,
-            id: id,
-            actualDuration: actual,
-            mode: SessionMode.meditate,
-            outcome: outcome,
-          )
-          .catchError((Object error) {
-            debugPrint(
-              'Could not save meditation history (${error.runtimeType}).',
-            );
-          }),
-    );
+    unawaited(_recordThenClear(id, outcome));
+  }
+
+  /// The checkpoint outlives the history write, so a session killed or failed
+  /// before it is saved is offered again instead of lost.
+  Future<void> _recordThenClear(String id, SessionOutcome outcome) async {
+    try {
+      await _history?.record(
+        _state.duration,
+        id: id,
+        actualDuration: _state.duration - remaining,
+        mode: SessionMode.meditate,
+        outcome: outcome,
+      );
+    } catch (error) {
+      debugPrint('Could not save meditation history (${error.runtimeType}).');
+      return;
+    }
+    // A session started meanwhile owns the checkpoint now.
+    if (_checkpointSessionId == id) _clearCheckpoint();
   }
 
   Future<void> _stopThenRingBell(QueueEntry entry) async {

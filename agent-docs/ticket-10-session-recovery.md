@@ -21,8 +21,12 @@ the session becomes paused (Pause, interruptions/headphones via the #9 handler,
 stream stall/failure, denied focus). Paused sessions do not rewrite. All saves
 and the clear go through one serialized chain, so a slow earlier write can never
 land after a later write or after the clear. Resolution (deadline completion,
-End, failure returning to setup) records history once and clears the checkpoint
-in the same `_resolve` step.
+End, failure returning to setup) stops further saves for the session, records
+history once, and clears the checkpoint only after that history write succeeds.
+If the write fails, or the process dies before it lands, the checkpoint survives
+and the next launch offers the session again. The deferred clear is skipped when
+a newer session has queued its own checkpoint meanwhile, so a late history write
+never removes another session's recovery.
 
 Restore (`load()` at startup, after remembered settings): the controller enters
 `paused` with the checkpoint's identity, sound, duration and bell, and nothing is
@@ -41,7 +45,7 @@ the checkpoint intact: no countdown runs and Resume can retry, or End records th
 saved time. Fresh, non-restored local failures keep #3's return-to-setup.
 
 End of a restored session records the saved active time as `endedEarly` under
-the original ID. If termination lands between the history write and the
+the original ID. If termination lands after the history write but before the
 checkpoint clear, the next launch asks `HistoryController.hasRecorded(id)` and
 discards an already-recorded checkpoint instead of offering it again; history's
 ID deduplication is the second guard.

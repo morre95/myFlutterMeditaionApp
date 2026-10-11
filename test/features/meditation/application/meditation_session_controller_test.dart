@@ -48,7 +48,11 @@ class _Harness {
     PlaybackSourceResolver? bellResolver,
     Future<bool> Function()? acquireAudioFocus,
     MeditationCheckpointRepository? checkpoints,
-  }) : audio = _AudioPlayer() {
+    SessionRepository? sessions,
+  }) : audio = _AudioPlayer(),
+       history = HistoryController(
+         repository: sessions ?? SharedPreferencesSessionRepository(),
+       ) {
     bellPlayer = _BellPlayer(audio.log);
     player = LocalAudioPlaybackController(player: audio, resolver: resolver);
     session = MeditationSessionController(
@@ -68,9 +72,7 @@ class _Harness {
     );
   }
 
-  final history = HistoryController(
-    repository: SharedPreferencesSessionRepository(),
-  );
+  final HistoryController history;
   final FakeAsync async;
   final _AudioPlayer audio;
   late final _BellPlayer bellPlayer;
@@ -99,9 +101,15 @@ class _Harness {
   _Harness kill({
     MeditationCheckpointRepository? checkpoints,
     PlaybackSourceResolver? resolver,
+    SessionRepository? sessions,
   }) {
     dispose();
-    return _Harness(async, checkpoints: checkpoints, resolver: resolver);
+    return _Harness(
+      async,
+      checkpoints: checkpoints,
+      resolver: resolver,
+      sessions: sessions,
+    );
   }
 }
 
@@ -302,6 +310,76 @@ void main() {
         expect(recorded.actualDuration, const Duration(seconds: 15));
         expect(recorded.outcome, SessionOutcome.endedEarly);
         third.dispose();
+      });
+    });
+
+    test('an End whose history write never landed is offered again', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 17));
+        final held = _HeldSessions()..saveReady = Completer<void>();
+        final second = h.kill(sessions: held);
+        second.session.load();
+        async.flushMicrotasks();
+        second.session.end();
+        async.flushMicrotasks();
+
+        final third = second.kill();
+        third.session.load();
+        async.flushMicrotasks();
+        expect(third.session.state.status, MeditationSessionStatus.paused);
+        expect(third.session.remaining, const Duration(seconds: 45));
+        third.session.end();
+        third.history.load();
+        async.flushMicrotasks();
+        final recorded = third.history.sessions.single;
+        expect(recorded.actualDuration, const Duration(seconds: 15));
+        expect(recorded.outcome, SessionOutcome.endedEarly);
+        third.dispose();
+      });
+    });
+
+    test('a failed history write keeps the session recoverable', () {
+      fakeAsync((async) {
+        final held = _HeldSessions()..saveError = StateError('disk full');
+        final h = _Harness(async, sessions: held);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(minutes: 1));
+        async.flushMicrotasks();
+        expect(h.session.state.status, MeditationSessionStatus.completed);
+
+        final next = h.kill();
+        next.session.load();
+        next.history.load();
+        async.flushMicrotasks();
+        expect(next.session.state.status, MeditationSessionStatus.paused);
+        expect(next.history.sessions, isEmpty);
+        next.dispose();
+      });
+    });
+
+    test('a late history write keeps the next session recoverable', () {
+      fakeAsync((async) {
+        final held = _HeldSessions()..saveReady = Completer<void>();
+        final h = _Harness(async, sessions: held);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 5));
+        h.session.end();
+        async.flushMicrotasks();
+        h.startWith(_rain, const Duration(minutes: 2));
+        async.elapse(const Duration(seconds: 17));
+        held.saveReady!.complete();
+        async.flushMicrotasks();
+
+        final next = h.kill();
+        next.session.load();
+        next.history.load();
+        async.flushMicrotasks();
+        expect(next.session.state.status, MeditationSessionStatus.paused);
+        expect(next.session.state.duration, const Duration(minutes: 2));
+        expect(next.history.sessions.single.outcome, SessionOutcome.endedEarly);
+        next.dispose();
       });
     });
 
@@ -1814,6 +1892,24 @@ class _HeldCheckpoints implements MeditationCheckpointRepository {
   Future<void> clear() async {
     await clearReady?.future;
     await _storage.clear();
+  }
+}
+
+/// Real history storage whose writes can be held or fail.
+class _HeldSessions implements SessionRepository {
+  final _storage = SharedPreferencesSessionRepository();
+  Completer<void>? saveReady;
+  Object? saveError;
+
+  @override
+  Future<List<MeditationSession>> loadAll() => _storage.loadAll();
+
+  @override
+  Future<void> saveAll(List<MeditationSession> sessions) async {
+    await saveReady?.future;
+    final error = saveError;
+    if (error != null) throw error;
+    await _storage.saveAll(sessions);
   }
 }
 
