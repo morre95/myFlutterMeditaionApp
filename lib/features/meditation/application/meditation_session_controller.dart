@@ -272,14 +272,32 @@ class MeditationSessionController extends ChangeNotifier {
   }
 
   Future<MeditationCheckpoint?> _loadCheckpoint() async {
+    final MeditationCheckpoint? checkpoint;
     try {
-      return await _checkpoints.load();
+      checkpoint = await _checkpoints.load();
     } catch (error) {
       debugPrint(
         'Could not read unfinished meditation (${error.runtimeType}).',
       );
       _clearCheckpoint();
       return null;
+    }
+    if (checkpoint == null) return null;
+    // Termination can land between recording a session and clearing it.
+    if (await _wasRecorded(checkpoint.sessionId)) {
+      _clearCheckpoint();
+      return null;
+    }
+    return checkpoint;
+  }
+
+  Future<bool> _wasRecorded(String sessionId) async {
+    try {
+      return await _history?.hasRecorded(sessionId) ?? false;
+    } catch (error) {
+      // History deduplicates identities, so a later End cannot double count.
+      debugPrint('Could not read meditation history (${error.runtimeType}).');
+      return false;
     }
   }
 

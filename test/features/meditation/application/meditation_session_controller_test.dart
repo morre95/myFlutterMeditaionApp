@@ -281,7 +281,7 @@ void main() {
       });
     });
 
-    test('termination before recovery clears never records End twice', () {
+    test('an End recorded before its checkpoint cleared is not offered', () {
       fakeAsync((async) {
         final h = _Harness(async);
         h.startWith(_rain, const Duration(minutes: 1));
@@ -295,10 +295,9 @@ void main() {
 
         final third = second.kill();
         third.session.load();
+        third.history.load();
         async.flushMicrotasks();
-        expect(third.session.state.status, MeditationSessionStatus.paused);
-        third.session.end();
-        async.flushMicrotasks();
+        expect(third.session.state.status, MeditationSessionStatus.setup);
         final recorded = third.history.sessions.single;
         expect(recorded.actualDuration, const Duration(seconds: 15));
         expect(recorded.outcome, SessionOutcome.endedEarly);
@@ -372,6 +371,23 @@ void main() {
         next.audio.positions.add(const Duration(seconds: 15));
         async.flushMicrotasks();
         expect(next.session.remaining, const Duration(seconds: 45));
+        next.dispose();
+      });
+    });
+
+    test('a session recorded before its checkpoint cleared stays done', () {
+      fakeAsync((async) {
+        final held = _HeldCheckpoints();
+        final h = _Harness(async, checkpoints: held);
+        h.startWith(_rain, const Duration(minutes: 1));
+        held.clearReady = Completer<void>();
+        async.elapse(const Duration(minutes: 1));
+        expect(h.history.sessions.single.outcome, SessionOutcome.completed);
+
+        final next = h.kill();
+        next.session.load();
+        async.flushMicrotasks();
+        expect(next.session.state.status, MeditationSessionStatus.setup);
         next.dispose();
       });
     });

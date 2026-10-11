@@ -74,10 +74,10 @@ class HistoryController extends ChangeNotifier {
     return streak;
   }
 
-  Future<void> _serialize(Future<void> Function() action) {
+  Future<T> _serialize<T>(Future<T> Function() action) {
     final operation = _pending.then((_) => action());
     // A failed save must not poison later retries.
-    _pending = operation.catchError((Object _) {});
+    _pending = operation.then<void>((_) {}).catchError((Object _) {});
     return operation;
   }
 
@@ -86,6 +86,12 @@ class HistoryController extends ChangeNotifier {
     _sessions = await _repository.loadAll();
     _loaded = true;
   }
+
+  /// Whether a session with [id] was already recorded, saved or pending.
+  Future<bool> hasRecorded(String id) => _serialize(() async {
+    await _ensureLoaded();
+    return _unsaved.containsKey(id) || _sessions.any((s) => s.id == id);
+  });
 
   Future<void> load() => _serialize(() async {
     await _ensureLoaded();
