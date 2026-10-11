@@ -34,13 +34,23 @@ class PlaylistController extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     final loaded = await _repository.loadAll();
+    final hasDuplicateIds = _hasDuplicateIds(loaded);
+    _playlists = hasDuplicateIds ? _withUniqueIds(loaded) : loaded;
     _isLoading = false;
-    if (_hasDuplicateIds(loaded)) {
-      _playlists = _withUniqueIds(loaded);
-      await _persist();
-    } else {
-      _playlists = loaded;
-      notifyListeners();
+    notifyListeners();
+    if (hasDuplicateIds) await _saveRepairedIds();
+  }
+
+  /// Saves the ids repaired by [load].
+  ///
+  /// A failed write must not abort startup: the repaired playlists are
+  /// already in memory, every later [_persist] writes them in full, and the
+  /// next launch repairs the still-duplicated stored data again.
+  Future<void> _saveRepairedIds() async {
+    try {
+      await _repository.saveAll(_playlists);
+    } on Exception catch (error) {
+      debugPrint('Repaired playlist ids could not be stored: $error');
     }
   }
 

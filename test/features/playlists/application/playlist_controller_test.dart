@@ -13,12 +13,15 @@ AudioSource _source(String id) => AudioSource(
 
 class _FakeRepo implements PlaylistRepository {
   final List<Playlist> _store = [];
+  Exception? saveError;
 
   @override
   Future<List<Playlist>> loadAll() async => List.from(_store);
 
   @override
   Future<void> saveAll(List<Playlist> playlists) async {
+    final error = saveError;
+    if (error != null) throw error;
     _store
       ..clear()
       ..addAll(playlists);
@@ -288,6 +291,49 @@ void main() {
         c.playlists.expand((p) => p.tracks).map((t) => t.id),
       );
       c.dispose();
+    });
+
+    group('when saving the repair fails', () {
+      test(
+        'load still completes with unique ids and loading cleared',
+        () async {
+          final repo = await corruptRepo();
+          repo.saveError = Exception('storage unavailable');
+          final c = PlaylistController(repository: repo);
+          final loadingStates = <bool>[];
+          c.addListener(() => loadingStates.add(c.isLoading));
+
+          await c.load();
+
+          expect(c.isLoading, isFalse);
+          expect(loadingStates.last, isFalse);
+          expect(c.playlists.map((p) => p.id).toSet(), hasLength(2));
+          expect(
+            c.playlists.expand((p) => p.tracks).map((t) => t.id).toSet(),
+            hasLength(5),
+          );
+          c.dispose();
+        },
+      );
+
+      test('the next save persists the repaired ids', () async {
+        final repo = await corruptRepo();
+        repo.saveError = Exception('storage unavailable');
+        final c = PlaylistController(repository: repo);
+        await c.load();
+        repo.saveError = null;
+
+        await c.rename(c.playlists[1].id, 'Night');
+
+        final saved = await repo.loadAll();
+        expect(saved.map((p) => p.id), ['playlist-0', c.playlists[1].id]);
+        expect(saved.map((p) => p.id).toSet(), hasLength(2));
+        expect(
+          saved.expand((p) => p.tracks).map((t) => t.id).toSet(),
+          hasLength(5),
+        );
+        c.dispose();
+      });
     });
 
     test('removeTrack then removes only the chosen track', () async {

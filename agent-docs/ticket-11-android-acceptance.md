@@ -29,6 +29,11 @@ first occurrence, in stored order (playlists in list order, then tracks in
 playlist order), keeps its id. Each later duplicate gets a fresh id. No
 playlist or track is dropped or merged, the order stays the same, and the
 repaired list is saved right away. Data without duplicates is not rewritten.
+If that save fails, startup continues: `load()` still finishes with the
+repaired playlists in memory and loading cleared, the failure is logged
+(`Repaired playlist ids could not be stored`), and the stored data stays
+duplicated. The next change to any playlist saves the full repaired list, and
+until then each launch repeats the repair.
 
 Other places that use these ids:
 
