@@ -225,6 +225,29 @@ void main() {
       });
     });
 
+    test('Pause and interruptions checkpoint exact progress at once', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        final handler = MeditationAudioHandler(session: h.session);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 12));
+        h.session.pause();
+        async.flushMicrotasks();
+        h.session.resume();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 6));
+        handler.handleInterruption(began: true);
+        async.flushMicrotasks();
+        handler.dispose();
+
+        final next = h.kill();
+        next.session.load();
+        async.flushMicrotasks();
+        expect(next.session.remaining, const Duration(seconds: 42));
+        next.dispose();
+      });
+    });
+
     test('Resume continues the remaining time from the saved position', () {
       fakeAsync((async) {
         final h = _Harness(async);

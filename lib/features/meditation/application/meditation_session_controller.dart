@@ -172,6 +172,7 @@ class MeditationSessionController extends ChangeNotifier {
         errorMessage: message,
       ),
     );
+    _saveCheckpoint();
     final entry = _entry;
     late final Future<void> pending;
     pending = _player
@@ -459,6 +460,7 @@ class MeditationSessionController extends ChangeNotifier {
     _streamWatchdog?.cancel();
     _streamWatchdog = null;
     _setState(_state.copyWith(status: MeditationSessionStatus.paused));
+    _saveCheckpoint();
     // Stopping a repeat reload keeps a paused session silent.
     late final Future<void> pending;
     pending =
@@ -550,6 +552,7 @@ class MeditationSessionController extends ChangeNotifier {
           errorMessage: 'Audio is unavailable. Resume to try again.',
         ),
       );
+      _saveCheckpoint();
     }
     return granted;
   }
