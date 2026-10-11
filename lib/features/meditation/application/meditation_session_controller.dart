@@ -12,7 +12,9 @@ import '../../player/domain/queue_entry.dart';
 import '../../settings/application/app_settings_controller.dart';
 import '../../timer/application/bell_ringer.dart';
 import '../../timer/domain/bell_selection.dart';
+import '../domain/meditation_checkpoint.dart';
 import '../domain/meditation_settings.dart';
+import '../infrastructure/shared_preferences_meditation_checkpoint_repository.dart';
 import '../infrastructure/shared_preferences_meditation_settings_repository.dart';
 
 /// Monotonic time since an arbitrary origin; only differences are meaningful.
@@ -69,6 +71,7 @@ class MeditationSessionController extends ChangeNotifier {
     required LocalAudioPlaybackController player,
     required BellRinger bell,
     required MeditationSettingsRepository repository,
+    required MeditationCheckpointRepository checkpoints,
     required PlaybackOwnershipController ownership,
     required AppSettingsController appSettings,
     required ElapsedClock clock,
@@ -77,6 +80,7 @@ class MeditationSessionController extends ChangeNotifier {
   }) : _player = player,
        _bell = bell,
        _repository = repository,
+       _checkpoints = checkpoints,
        _ownership = ownership,
        _appSettings = appSettings,
        _clock = clock,
@@ -95,9 +99,20 @@ class MeditationSessionController extends ChangeNotifier {
   static const Duration fadeDuration = Duration(seconds: 5);
   static const Duration _fadeStep = Duration(milliseconds: 100);
 
+  /// How often an active session's progress is made durable; termination can
+  /// lose at most this much active time plus storage flush latency.
+  static const Duration checkpointInterval = Duration(seconds: 5);
+
   final LocalAudioPlaybackController _player;
   final BellRinger _bell;
   final MeditationSettingsRepository _repository;
+  final MeditationCheckpointRepository _checkpoints;
+  Future<void> _checkpointWrites = Future<void>.value();
+  Timer? _checkpointTimer;
+
+  /// A restored session has nothing loaded natively until Resume.
+  bool _needsReload = false;
+  Duration _resumePosition = Duration.zero;
   final PlaybackOwnershipController _ownership;
   final AppSettingsController _appSettings;
   final ElapsedClock _clock;
@@ -142,12 +157,12 @@ class MeditationSessionController extends ChangeNotifier {
     _streamWatchdog = Timer(const Duration(seconds: 5), () {
       if (_state.status == MeditationSessionStatus.loading ||
           _state.status == MeditationSessionStatus.running) {
-        _interruptStream('Sound is buffering. Resume to try again.');
+        _interruptPlayback('Sound is buffering. Resume to try again.');
       }
     });
   }
 
-  void _interruptStream(String? message) {
+  void _interruptPlayback(String? message) {
     ++_command;
     _streamWatchdog?.cancel();
     _streamWatchdog = null;
@@ -157,6 +172,7 @@ class MeditationSessionController extends ChangeNotifier {
         errorMessage: message,
       ),
     );
+    _saveCheckpoint();
     final entry = _entry;
     late final Future<void> pending;
     pending = _player
@@ -184,7 +200,7 @@ class MeditationSessionController extends ChangeNotifier {
   void _onStreamChanged() {
     final player = _player.state;
     if (player.status == LocalPlaybackStatus.error) {
-      _interruptStream(player.errorMessage);
+      _interruptPlayback(player.errorMessage);
       return;
     }
     if (player.status == LocalPlaybackStatus.playing && _pendingPause == null) {
@@ -208,7 +224,7 @@ class MeditationSessionController extends ChangeNotifier {
       _streamWatchdog?.cancel();
       _streamWatchdog = null;
       if (_activeElapsed - _playThroughStart < minimumPlayThrough) {
-        _interruptStream('Sound ended before it could be played.');
+        _interruptPlayback('Sound ended before it could be played.');
         return;
       }
       _playThroughStart = _activeElapsed;
@@ -236,18 +252,125 @@ class MeditationSessionController extends ChangeNotifier {
 
   bool get _isSetup => _state.status == MeditationSessionStatus.setup;
 
-  /// Restores the last choices. Call once at startup.
+  /// Restores the last choices and any unfinished session, paused. Call once
+  /// at startup.
   Future<void> load() async {
     final saved = await _repository.load();
-    if (saved == null || !_isSetup) return;
+    final checkpoint = await _loadCheckpoint();
+    if (!_isSetup) return;
+    if (saved != null) {
+      _setState(
+        _state.copyWith(
+          sound: saved.sound,
+          duration: _withinRange(saved.duration),
+          bell: saved.bell,
+          isBellEnabled: saved.isBellEnabled,
+        ),
+      );
+    }
+    if (checkpoint != null) _restore(checkpoint);
+  }
+
+  Future<MeditationCheckpoint?> _loadCheckpoint() async {
+    final MeditationCheckpoint? checkpoint;
+    try {
+      checkpoint = await _checkpoints.load();
+    } catch (error) {
+      debugPrint(
+        'Could not read unfinished meditation (${error.runtimeType}).',
+      );
+      _clearCheckpoint();
+      return null;
+    }
+    if (checkpoint == null) return null;
+    // Termination can land between recording a session and clearing it.
+    if (await _wasRecorded(checkpoint.sessionId)) {
+      _clearCheckpoint();
+      return null;
+    }
+    return checkpoint;
+  }
+
+  Future<bool> _wasRecorded(String sessionId) async {
+    try {
+      return await _history?.hasRecorded(sessionId) ?? false;
+    } catch (error) {
+      // History deduplicates identities, so a later End cannot double count.
+      debugPrint('Could not read meditation history (${error.runtimeType}).');
+      return false;
+    }
+  }
+
+  void _restore(MeditationCheckpoint checkpoint) {
+    _sessionId++;
+    _historySessionId = checkpoint.sessionId;
+    _activeElapsed = checkpoint.activeDuration;
+    _streamPosition = checkpoint.soundPosition;
+    _resumePosition = checkpoint.soundPosition;
+    final played = checkpoint.activeDuration - checkpoint.soundPosition;
+    _playThroughStart = played > Duration.zero ? played : Duration.zero;
+    _needsReload = true;
+    _entry = QueueEntry(
+      id: checkpoint.sound.id,
+      source: checkpoint.sound,
+      addedAt: DateTime.now(),
+    );
+    _checkpointTimer = Timer.periodic(checkpointInterval, (_) => _checkpoint());
     _setState(
       _state.copyWith(
-        sound: saved.sound,
-        duration: _withinRange(saved.duration),
-        bell: saved.bell,
-        isBellEnabled: saved.isBellEnabled,
+        status: MeditationSessionStatus.paused,
+        sound: checkpoint.sound,
+        duration: checkpoint.plannedDuration,
+        bell: checkpoint.bell,
+        isBellEnabled: checkpoint.isBellEnabled,
+        clearError: true,
       ),
     );
+  }
+
+  Duration get _soundPosition {
+    if (_isStream) return _streamPosition;
+    if (_needsReload) return _resumePosition;
+    final player = _player.state;
+    return identical(player.currentEntry, _entry)
+        ? player.position
+        : Duration.zero;
+  }
+
+  /// Saves progress while the session can advance; pauses save explicitly.
+  void _checkpoint() {
+    final status = _state.status;
+    if (status == MeditationSessionStatus.loading ||
+        status == MeditationSessionStatus.running) {
+      _saveCheckpoint();
+    }
+  }
+
+  void _saveCheckpoint() {
+    final id = _historySessionId;
+    final sound = _state.sound;
+    if (id == null || sound == null || _entry == null) return;
+    final checkpoint = MeditationCheckpoint(
+      sessionId: id,
+      sound: sound,
+      plannedDuration: _state.duration,
+      activeDuration: _state.duration - remaining,
+      soundPosition: _soundPosition,
+      bell: _state.bell,
+      isBellEnabled: _state.isBellEnabled,
+    );
+    _persistCheckpoint(() => _checkpoints.save(checkpoint));
+  }
+
+  void _clearCheckpoint() => _persistCheckpoint(_checkpoints.clear);
+
+  /// Serialized, so a slow earlier write never lands after a later one.
+  void _persistCheckpoint(Future<void> Function() write) {
+    _checkpointWrites = _checkpointWrites.then((_) => write()).catchError((
+      Object error,
+    ) {
+      debugPrint('Could not save meditation progress (${error.runtimeType}).');
+    });
   }
 
   void selectSound(AudioSource sound) =>
@@ -292,6 +415,7 @@ class MeditationSessionController extends ChangeNotifier {
     _historySessionId = newSessionId();
     final command = ++_command;
     _pendingPause = null;
+    _needsReload = false;
     _activeElapsed = Duration.zero;
     _streamPosition = Duration.zero;
     _playThroughStart = Duration.zero;
@@ -307,6 +431,9 @@ class MeditationSessionController extends ChangeNotifier {
         clearError: true,
       ),
     );
+    _saveCheckpoint();
+    _checkpointTimer?.cancel();
+    _checkpointTimer = Timer.periodic(checkpointInterval, (_) => _checkpoint());
     return _ownership.run(
       owner: this,
       deactivate: end,
@@ -351,6 +478,7 @@ class MeditationSessionController extends ChangeNotifier {
     _streamWatchdog?.cancel();
     _streamWatchdog = null;
     _setState(_state.copyWith(status: MeditationSessionStatus.paused));
+    _saveCheckpoint();
     // Stopping a repeat reload keeps a paused session silent.
     late final Future<void> pending;
     pending =
@@ -360,7 +488,7 @@ class MeditationSessionController extends ChangeNotifier {
             .catchError((Object error) {
               if (identical(_entry, entry) &&
                   identical(_pendingPause, pending)) {
-                _interruptStream(
+                _interruptPlayback(
                   'Could not pause the sound. Resume to try again.',
                 );
               }
@@ -400,7 +528,7 @@ class MeditationSessionController extends ChangeNotifier {
       return;
     }
     final command = ++_command;
-    final nextStatus = _isStream
+    final nextStatus = _isStream || _needsReload
         ? MeditationSessionStatus.loading
         : MeditationSessionStatus.running;
     _setState(_state.copyWith(status: nextStatus, clearError: true));
@@ -412,14 +540,28 @@ class MeditationSessionController extends ChangeNotifier {
       return;
     }
     if (!await _requestFocus(entry, command)) return;
-    if (_isStream) {
-      await _player.play(entry, position: _streamPosition);
-    } else if (_player.state.status == LocalPlaybackStatus.paused) {
-      await _player.resume();
-    } else {
-      _playThroughStart = _activeElapsed;
-      await _player.play(entry);
+    Future<void> continuePlayback() async {
+      if (_isStream) {
+        await _player.play(entry, position: _streamPosition);
+      } else if (_needsReload) {
+        await _player.play(entry, position: _resumePosition);
+      } else if (_player.state.status == LocalPlaybackStatus.paused) {
+        await _player.resume();
+      } else {
+        _playThroughStart = _activeElapsed;
+        await _player.play(entry);
+      }
     }
+
+    if (identical(_ownership.activeOwner, this)) return continuePlayback();
+    // A restored session has not claimed playback in this process yet.
+    return _ownership.run(
+      owner: this,
+      deactivate: end,
+      action: continuePlayback,
+      canRun: () =>
+          !_disposed && identical(_entry, entry) && _command == command,
+    );
   }
 
   Future<bool> _requestFocus(QueueEntry entry, int command) async {
@@ -440,6 +582,7 @@ class MeditationSessionController extends ChangeNotifier {
           errorMessage: 'Audio is unavailable. Resume to try again.',
         ),
       );
+      _saveCheckpoint();
     }
     return granted;
   }
@@ -468,7 +611,7 @@ class MeditationSessionController extends ChangeNotifier {
   }
 
   void _returnToSetup({String? errorMessage}) {
-    _recordOutcome(
+    _resolve(
       remaining == Duration.zero
           ? SessionOutcome.completed
           : SessionOutcome.endedEarly,
@@ -494,7 +637,7 @@ class MeditationSessionController extends ChangeNotifier {
     if (_isStream &&
         status == MeditationSessionStatus.paused &&
         _player.state.status == LocalPlaybackStatus.error) {
-      _interruptStream(_player.state.errorMessage);
+      _interruptPlayback(_player.state.errorMessage);
       return;
     }
     if (status != MeditationSessionStatus.loading &&
@@ -508,6 +651,7 @@ class MeditationSessionController extends ChangeNotifier {
     switch (_player.state.status) {
       case LocalPlaybackStatus.playing
           when _countingSince == null && _pendingPause == null:
+        _needsReload = false;
         _setState(_state.copyWith(status: MeditationSessionStatus.running));
         _startCounting();
       case LocalPlaybackStatus.completed when _countingSince != null:
@@ -522,6 +666,9 @@ class MeditationSessionController extends ChangeNotifier {
         }
         _playThroughStart = _activeElapsed;
         unawaited(_player.play(_entry!));
+      case LocalPlaybackStatus.error when _needsReload:
+        // Restored progress stays paused for a later Resume or End.
+        _interruptPlayback(_player.state.errorMessage);
       case LocalPlaybackStatus.error:
         // Without audio there is no session, so nothing may count down.
         _returnToSetup(errorMessage: _player.state.errorMessage);
@@ -568,7 +715,7 @@ class MeditationSessionController extends ChangeNotifier {
     _stopCounting();
     _streamWatchdog?.cancel();
     final entry = _entry;
-    _recordOutcome(SessionOutcome.completed);
+    _resolve(SessionOutcome.completed);
     _pendingStops++;
     if (_state.isBellEnabled) _finishingBell = entry;
     _setState(_state.copyWith(status: MeditationSessionStatus.completed));
@@ -581,10 +728,14 @@ class MeditationSessionController extends ChangeNotifier {
     }
   }
 
-  void _recordOutcome(SessionOutcome outcome) {
+  /// Records the session once and drops its recovery checkpoint.
+  void _resolve(SessionOutcome outcome) {
     final id = _historySessionId;
     if (id == null) return;
     _historySessionId = null;
+    _checkpointTimer?.cancel();
+    _checkpointTimer = null;
+    _clearCheckpoint();
     final actual = _state.duration - remaining;
     unawaited(
       _history
@@ -655,6 +806,7 @@ class MeditationSessionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _checkpointTimer?.cancel();
     _streamWatchdog?.cancel();
     _deadline?.cancel();
     _refresh?.cancel();

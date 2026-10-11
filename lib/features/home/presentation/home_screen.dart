@@ -1,15 +1,35 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/app_scope.dart';
 import '../../../shared/presentation/gradient_background.dart';
 import '../../history/presentation/history_screen.dart';
 import '../../library/presentation/library_screen.dart';
+import '../../meditation/application/meditation_session_controller.dart';
 import '../../meditation/presentation/meditate_screen.dart';
 import '../../music_mode/presentation/music_mode_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
 import '../../timer/presentation/timer_mode_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // A session restored after termination opens paused, awaiting Resume/End.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final session = AppScope.of(context).meditationSessionController;
+      if (session.state.status != MeditationSessionStatus.setup) {
+        _open(context, const MeditateScreen());
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

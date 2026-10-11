@@ -6,6 +6,8 @@ import 'package:audio_service/audio_service.dart';
 import 'package:my_meditation_app/features/meditation/application/meditation_audio_handler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/features/meditation/application/meditation_session_controller.dart';
+import 'package:my_meditation_app/features/meditation/domain/meditation_checkpoint.dart';
+import 'package:my_meditation_app/features/meditation/infrastructure/shared_preferences_meditation_checkpoint_repository.dart';
 import 'package:my_meditation_app/features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
 import 'package:my_meditation_app/features/player/application/local_audio_playback_controller.dart';
 import 'package:my_meditation_app/features/player/application/playback_ownership_controller.dart';
@@ -45,6 +47,7 @@ class _Harness {
     ElapsedClock? clock,
     PlaybackSourceResolver? bellResolver,
     Future<bool> Function()? acquireAudioFocus,
+    MeditationCheckpointRepository? checkpoints,
   }) : audio = _AudioPlayer() {
     bellPlayer = _BellPlayer(audio.log);
     player = LocalAudioPlaybackController(player: audio, resolver: resolver);
@@ -55,6 +58,8 @@ class _Harness {
         sourceResolver: bellResolver ?? const LocalPlaybackSourceResolver(),
       ),
       repository: SharedPreferencesMeditationSettingsRepository(),
+      checkpoints:
+          checkpoints ?? SharedPreferencesMeditationCheckpointRepository(),
       ownership: ownership,
       appSettings: appSettings,
       clock: clock ?? () => async.elapsed,
@@ -88,6 +93,15 @@ class _Harness {
     player.dispose();
     appSettings.dispose();
     async.flushMicrotasks();
+  }
+
+  /// Terminates this process without End and launches on the same storage.
+  _Harness kill({
+    MeditationCheckpointRepository? checkpoints,
+    PlaybackSourceResolver? resolver,
+  }) {
+    dispose();
+    return _Harness(async, checkpoints: checkpoints, resolver: resolver);
   }
 }
 
@@ -191,6 +205,255 @@ void main() {
   });
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  group('recovery after termination', () {
+    test('a killed session relaunches paused at its last checkpoint', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 14));
+        h.audio.positions.add(const Duration(seconds: 14));
+        async.elapse(const Duration(seconds: 3));
+
+        final next = h.kill();
+        next.session.load();
+        async.flushMicrotasks();
+
+        expect(next.session.state.status, MeditationSessionStatus.paused);
+        expect(next.session.state.sound!.id, _rain.id);
+        expect(next.session.state.duration, const Duration(minutes: 1));
+        expect(next.session.remaining, const Duration(seconds: 45));
+        async.elapse(const Duration(minutes: 5));
+        expect(next.session.remaining, const Duration(seconds: 45));
+        expect(next.audio.loaded, isEmpty);
+        expect(next.audio.isPlaying, isFalse);
+        next.dispose();
+      });
+    });
+
+    test('Pause and interruptions checkpoint exact progress at once', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        final handler = MeditationAudioHandler(session: h.session);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 12));
+        h.session.pause();
+        async.flushMicrotasks();
+        h.session.resume();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 6));
+        handler.handleInterruption(began: true);
+        async.flushMicrotasks();
+        handler.dispose();
+
+        final next = h.kill();
+        next.session.load();
+        async.flushMicrotasks();
+        expect(next.session.remaining, const Duration(seconds: 42));
+        next.dispose();
+      });
+    });
+
+    test('End records saved time early once and clears recovery', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 17));
+        final second = h.kill();
+        second.session.load();
+        async.flushMicrotasks();
+        second.session.end();
+        second.session.end();
+        async.flushMicrotasks();
+        expect(second.session.state.status, MeditationSessionStatus.setup);
+        expect(second.audio.isPlaying, isFalse);
+
+        final third = second.kill();
+        third.session.load();
+        third.history.load();
+        async.flushMicrotasks();
+        expect(third.session.state.status, MeditationSessionStatus.setup);
+        final recorded = third.history.sessions.single;
+        expect(recorded.actualDuration, const Duration(seconds: 15));
+        expect(recorded.plannedDuration, const Duration(minutes: 1));
+        expect(recorded.outcome, SessionOutcome.endedEarly);
+        third.dispose();
+      });
+    });
+
+    test('an End recorded before its checkpoint cleared is not offered', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 17));
+        final held = _HeldCheckpoints()..clearReady = Completer<void>();
+        final second = h.kill(checkpoints: held);
+        second.session.load();
+        async.flushMicrotasks();
+        second.session.end();
+        async.flushMicrotasks();
+
+        final third = second.kill();
+        third.session.load();
+        third.history.load();
+        async.flushMicrotasks();
+        expect(third.session.state.status, MeditationSessionStatus.setup);
+        final recorded = third.history.sessions.single;
+        expect(recorded.actualDuration, const Duration(seconds: 15));
+        expect(recorded.outcome, SessionOutcome.endedEarly);
+        third.dispose();
+      });
+    });
+
+    test('a slow checkpoint write cannot revive a session ended after it', () {
+      fakeAsync((async) {
+        final held = _HeldCheckpoints();
+        final h = _Harness(async, checkpoints: held);
+        h.startWith(_rain, const Duration(minutes: 1));
+        held.saveReady = Completer<void>();
+        async.elapse(const Duration(seconds: 5));
+        h.session.end();
+        async.flushMicrotasks();
+        held.saveReady!.complete();
+        async.flushMicrotasks();
+
+        final next = h.kill();
+        next.session.load();
+        async.flushMicrotasks();
+        expect(next.session.state.status, MeditationSessionStatus.setup);
+        next.dispose();
+      });
+    });
+
+    test('a missing sound keeps the restored session paused for End', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 17));
+        final next = h.kill();
+        next.audio.loadError = const FileSystemException('missing');
+        next.session.load();
+        async.flushMicrotasks();
+
+        next.session.resume();
+        async.flushMicrotasks();
+        expect(next.session.state.status, MeditationSessionStatus.paused);
+        expect(next.session.state.errorMessage, 'Could not play rain.wav.');
+        async.elapse(const Duration(minutes: 1));
+        expect(next.session.remaining, const Duration(seconds: 45));
+        expect(next.audio.isPlaying, isFalse);
+
+        next.session.end();
+        async.flushMicrotasks();
+        final recorded = next.history.sessions.single;
+        expect(recorded.actualDuration, const Duration(seconds: 15));
+        expect(recorded.outcome, SessionOutcome.endedEarly);
+        next.dispose();
+      });
+    });
+
+    test('a restored stream resolves a fresh source at its position', () {
+      fakeAsync((async) {
+        final h = _Harness(async, resolver: _StreamResolver());
+        h.startWith(_cloud, const Duration(minutes: 1));
+        h.audio.positions.add(const Duration(seconds: 12));
+        async.elapse(const Duration(seconds: 5));
+        final resolver = _StreamResolver()..links = 1;
+        final next = h.kill(resolver: resolver);
+        next.session.load();
+        async.flushMicrotasks();
+        expect(next.session.remaining, const Duration(seconds: 48));
+
+        next.session.resume();
+        async.flushMicrotasks();
+        expect(next.audio.loaded, ['https://stream.example/2']);
+        expect(next.audio.seekPosition, const Duration(seconds: 12));
+        next.audio.positions.add(const Duration(seconds: 15));
+        async.flushMicrotasks();
+        expect(next.session.remaining, const Duration(seconds: 45));
+        next.dispose();
+      });
+    });
+
+    test('a session recorded before its checkpoint cleared stays done', () {
+      fakeAsync((async) {
+        final held = _HeldCheckpoints();
+        final h = _Harness(async, checkpoints: held);
+        h.startWith(_rain, const Duration(minutes: 1));
+        held.clearReady = Completer<void>();
+        async.elapse(const Duration(minutes: 1));
+        expect(h.history.sessions.single.outcome, SessionOutcome.completed);
+
+        final next = h.kill();
+        next.session.load();
+        async.flushMicrotasks();
+        expect(next.session.state.status, MeditationSessionStatus.setup);
+        next.dispose();
+      });
+    });
+
+    test('a restored session waits silently and Resume takes over Music', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 17));
+        final next = h.kill();
+        final handler = MeditationAudioHandler(session: next.session);
+        final musicAudio = _AudioPlayer();
+        final musicPlayer = LocalAudioPlaybackController(player: musicAudio);
+        final music = PlaylistPlaybackController(
+          player: musicPlayer,
+          ownership: next.ownership,
+        );
+        next.session.load();
+        async.flushMicrotasks();
+        expect(handler.playbackState.value.playing, isFalse);
+        music.playPlaylist(_playlist());
+        async.flushMicrotasks();
+        expect(next.session.state.status, MeditationSessionStatus.paused);
+
+        next.session.resume();
+        async.flushMicrotasks();
+        expect(musicAudio.isPlaying, isFalse);
+        expect(next.audio.isPlaying, isTrue);
+        expect(handler.playbackState.value.playing, isTrue);
+
+        handler.dispose();
+        music.dispose();
+        musicPlayer.dispose();
+        next.dispose();
+      });
+    });
+
+    test('Resume continues the remaining time from the saved position', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 14));
+        h.audio.positions.add(const Duration(seconds: 14));
+        async.elapse(const Duration(seconds: 3));
+        final next = h.kill();
+        next.session.load();
+        async.flushMicrotasks();
+
+        next.session.resume();
+        async.flushMicrotasks();
+        expect(next.audio.loaded, [_rain.reference]);
+        expect(next.audio.seekPosition, const Duration(seconds: 14));
+        expect(next.session.state.status, MeditationSessionStatus.running);
+        async.elapse(const Duration(seconds: 44));
+        expect(next.session.remaining, const Duration(seconds: 1));
+        async.elapse(const Duration(seconds: 1));
+        expect(next.session.state.status, MeditationSessionStatus.completed);
+        expect(
+          next.history.sessions.single.actualDuration,
+          const Duration(minutes: 1),
+        );
+        expect(next.history.sessions.single.outcome, SessionOutcome.completed);
+        next.dispose();
+      });
+    });
+  });
 
   test('an interruption silences the ending bell without auto-resume', () {
     fakeAsync((async) {
@@ -1529,6 +1792,28 @@ class _AudioPlayer implements LocalAudioPlayer {
     unawaited(completions.close());
     unawaited(positions.close());
     unawaited(durations.close());
+  }
+}
+
+/// Real storage whose writes can be held, as if the process died first.
+class _HeldCheckpoints implements MeditationCheckpointRepository {
+  final _storage = SharedPreferencesMeditationCheckpointRepository();
+  Completer<void>? saveReady;
+  Completer<void>? clearReady;
+
+  @override
+  Future<MeditationCheckpoint?> load() => _storage.load();
+
+  @override
+  Future<void> save(MeditationCheckpoint checkpoint) async {
+    await saveReady?.future;
+    await _storage.save(checkpoint);
+  }
+
+  @override
+  Future<void> clear() async {
+    await clearReady?.future;
+    await _storage.clear();
   }
 }
 
