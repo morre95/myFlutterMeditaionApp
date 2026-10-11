@@ -279,6 +279,39 @@ void main() {
     });
   });
 
+  testWidgets('long sound names fit on a narrow Meditate screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.runAsync(() async {
+      final app = await _App.create(withSound: false);
+      const name =
+          'Astral Projection Theta Binaural Beat - 6.3Hz '
+          'Deep Meditation with a very long filename.mp3';
+      await app.download(name);
+      await app.deps.init();
+      await app.open(tester);
+      await _chooseSound(tester, name);
+      expect(tester.takeException(), isNull);
+
+      expect(
+        app.deps.meditationSessionController.state.sound?.displayName,
+        name,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Start'))
+            .onPressed,
+        isNotNull,
+      );
+      await app.dispose(tester);
+    });
+  });
+
   testWidgets('an empty library explains how to add a sound', (tester) async {
     await tester.runAsync(() async {
       final app = await _App.create(withSound: false);

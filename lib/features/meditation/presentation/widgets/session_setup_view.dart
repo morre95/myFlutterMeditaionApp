@@ -224,6 +224,7 @@ class _SoundPicker extends StatelessWidget {
     }
     return DropdownButtonFormField<String>(
       key: const Key('meditate-sound-dropdown'),
+      isExpanded: true,
       initialValue: selected?.id,
       decoration: const InputDecoration(
         labelText: 'Sound',
@@ -233,7 +234,11 @@ class _SoundPicker extends StatelessWidget {
         for (final sound in sounds)
           DropdownMenuItem<String>(
             value: sound.id,
-            child: Text(sound.displayName),
+            child: Text(
+              sound.displayName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
       ],
       onChanged: (id) =>
