@@ -400,7 +400,7 @@ void main() {
     });
   });
 
-  testWidgets('Device storage keeps the sound of an active session', (
+  testWidgets('Saved sounds keeps the sound of an active session', (
     tester,
   ) async {
     await tester.runAsync(() async {
@@ -414,7 +414,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Library'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Device storage'));
+      await tester.tap(find.text('Saved sounds'));
       await _pumpUntil(tester, find.byTooltip('Remove rain.wav'));
       // Taps during the route transition land off-screen.
       await tester.pumpAndSettle();

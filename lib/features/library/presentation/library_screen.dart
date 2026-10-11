@@ -201,7 +201,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   Card(
                     child: ListTile(
                       leading: const Icon(Icons.smartphone),
-                      title: const Text('Local phone storage'),
+                      title: const Text('Import audio from phone'),
                       subtitle: const Text(
                         'Save a durable copy of audio from this device.',
                       ),
@@ -215,7 +215,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   Card(
                     child: ListTile(
                       leading: const Icon(Icons.storage),
-                      title: const Text('Device storage'),
+                      title: const Text('Saved sounds'),
                       subtitle: const Text(
                         'See stored sounds and their sizes, or remove copies.',
                       ),

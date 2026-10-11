@@ -82,7 +82,7 @@ void main() {
             ),
           );
           await tester.tap(
-            find.text(fromLibrary ? 'Local phone storage' : 'Add files'),
+            find.text(fromLibrary ? 'Import audio from phone' : 'Add files'),
           );
           await tester.pumpAndSettle();
           await tester.tap(
@@ -162,7 +162,7 @@ void main() {
             ),
           );
           await tester.tap(
-            find.text(fromLibrary ? 'Local phone storage' : 'Add files'),
+            find.text(fromLibrary ? 'Import audio from phone' : 'Add files'),
           );
           await tester.pumpAndSettle();
           if (fromLibrary) {

@@ -74,7 +74,7 @@ class _DeviceStorageScreenState extends State<DeviceStorageScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Device storage')),
+      appBar: AppBar(title: const Text('Saved sounds')),
       extendBodyBehindAppBar: true,
       body: GradientBackground(
         child: SafeArea(
