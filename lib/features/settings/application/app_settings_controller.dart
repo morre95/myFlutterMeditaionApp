@@ -5,8 +5,8 @@ import '../../timer/domain/bell_selection.dart';
 import '../infrastructure/shared_preferences_app_settings_repository.dart';
 
 /// Holds shared user preferences: the library of custom timer bells (local
-/// audio files the user picked) and which preinstalled bells the user has
-/// disabled. Both feed the timer's bell picker.
+/// audio files the user picked), which preinstalled bells the user has
+/// disabled (both feed the timer's bell picker), and Offline mode.
 class AppSettingsController extends ChangeNotifier {
   AppSettingsController({required AppSettingsRepository repository})
     : _repository = repository;
@@ -15,6 +15,11 @@ class AppSettingsController extends ChangeNotifier {
 
   List<AudioSource> _customBells = [];
   Set<String> _disabledBuiltInBellIds = {};
+  bool _isOfflineMode = false;
+
+  /// Offline mode limits sounds to device copies and never requests cloud
+  /// playback.
+  bool get isOfflineMode => _isOfflineMode;
 
   List<AudioSource> get customBells =>
       List<AudioSource>.unmodifiable(_customBells);
@@ -36,7 +41,15 @@ class AppSettingsController extends ChangeNotifier {
   Future<void> load() async {
     _customBells = await _repository.loadCustomBells();
     _disabledBuiltInBellIds = await _repository.loadDisabledBuiltInBells();
+    _isOfflineMode = await _repository.loadOfflineMode();
     notifyListeners();
+  }
+
+  Future<void> setOfflineMode(bool isOffline) async {
+    if (_isOfflineMode == isOffline) return;
+    _isOfflineMode = isOffline;
+    notifyListeners();
+    await _repository.saveOfflineMode(isOffline);
   }
 
   Future<void> addCustomBell(AudioSource bell) async {

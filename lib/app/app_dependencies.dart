@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../features/meditation/infrastructure/meditation_background_audio.dart';
+import '../features/library/application/device_sound_catalog.dart';
 import '../features/library/application/local_audio_library.dart';
 import '../features/meditation/application/meditation_session_controller.dart';
 import '../features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
@@ -27,6 +28,7 @@ import '../features/settings/infrastructure/shared_preferences_app_settings_repo
 import '../features/timer/application/bell_ringer.dart';
 import '../features/timer/application/timer_bell_player.dart';
 import '../features/timer/infrastructure/shared_preferences_timer_settings_repository.dart';
+import '../shared/domain/audio_source.dart';
 
 /// Owns the application's shared, long-lived singletons.
 ///
@@ -74,6 +76,11 @@ class AppDependencies {
     ElapsedClock? clock,
   }) {
     final library = localAudioLibrary ?? LocalAudioLibrary();
+    final settings =
+        appSettingsController ??
+        AppSettingsController(
+          repository: SharedPreferencesAppSettingsRepository(),
+        );
     final auth = pcloudAuthController ?? PCloudAuthController();
     final service = pcloudService ?? PCloudService(session: auth);
     final downloads = PCloudDownloadController(
@@ -87,11 +94,7 @@ class AppDependencies {
       playlistController:
           playlistController ??
           PlaylistController(repository: SharedPreferencesPlaylistRepository()),
-      appSettingsController:
-          appSettingsController ??
-          AppSettingsController(
-            repository: SharedPreferencesAppSettingsRepository(),
-          ),
+      appSettingsController: settings,
       historyController:
           historyController ??
           HistoryController(repository: SharedPreferencesSessionRepository()),
@@ -114,7 +117,11 @@ class AppDependencies {
           SharedPreferencesMeditationSettingsRepository(),
       playbackSourceResolver:
           playbackSourceResolver ??
-          PCloudPlaybackSourceResolver(service: service, downloads: downloads),
+          PCloudPlaybackSourceResolver(
+            service: service,
+            downloads: downloads,
+            isOffline: () => settings.isOfflineMode,
+          ),
     );
   }
 
@@ -147,6 +154,39 @@ class AppDependencies {
   final BellPlayer? _meditationBellPlayer;
   MeditationSessionController? _meditationSessionController;
   MeditationBackgroundAudio? _backgroundAudio;
+
+  /// Device copies of imports and pCloud downloads, protected from removal
+  /// while Meditate or Music uses them.
+  late final DeviceSoundCatalog deviceSoundCatalog = DeviceSoundCatalog(
+    library: localAudioLibrary,
+    downloads: pcloudDownloadController,
+    isInActiveSession: _isInActiveSession,
+  );
+
+  /// Whether a Meditate session or Music playback holds [sound]: loading,
+  /// playing, paused, or still silencing it.
+  bool _isInActiveSession(AudioSource sound) {
+    final meditation = _meditationSessionController;
+    if (meditation != null && meditation.state.sound?.id == sound.id) {
+      const active = {
+        MeditationSessionStatus.loading,
+        MeditationSessionStatus.running,
+        MeditationSessionStatus.paused,
+      };
+      if (active.contains(meditation.state.status) || meditation.isSilencing) {
+        return true;
+      }
+    }
+    final music = _playbackController?.state;
+    const playing = {
+      LocalPlaybackStatus.loading,
+      LocalPlaybackStatus.playing,
+      LocalPlaybackStatus.paused,
+    };
+    return music != null &&
+        music.currentEntry?.source.id == sound.id &&
+        playing.contains(music.status);
+  }
 
   Future<void> initBackgroundAudio() async {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {

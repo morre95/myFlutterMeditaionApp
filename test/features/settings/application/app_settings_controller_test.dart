@@ -3,6 +3,7 @@ import 'package:my_meditation_app/features/settings/application/app_settings_con
 import 'package:my_meditation_app/features/settings/infrastructure/shared_preferences_app_settings_repository.dart';
 import 'package:my_meditation_app/features/timer/domain/bell_selection.dart';
 import 'package:my_meditation_app/shared/domain/audio_source.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   AudioSource bell(String id) => AudioSource(
@@ -34,6 +35,33 @@ void main() {
     await restored.load();
 
     expect(restored.customBells.map((b) => b.id), ['gong']);
+  });
+
+  group('offline mode', () {
+    test('is off until the user turns it on', () async {
+      SharedPreferences.setMockInitialValues({});
+      final controller = AppSettingsController(
+        repository: SharedPreferencesAppSettingsRepository(),
+      );
+
+      await controller.load();
+
+      expect(controller.isOfflineMode, isFalse);
+    });
+
+    test('persists across a restart', () async {
+      SharedPreferences.setMockInitialValues({});
+      await AppSettingsController(
+        repository: SharedPreferencesAppSettingsRepository(),
+      ).setOfflineMode(true);
+
+      final restored = AppSettingsController(
+        repository: SharedPreferencesAppSettingsRepository(),
+      );
+      await restored.load();
+
+      expect(restored.isOfflineMode, isTrue);
+    });
   });
 
   group('built-in bells', () {
@@ -123,4 +151,10 @@ class _FakeAppSettingsRepository implements AppSettingsRepository {
   Future<void> saveDisabledBuiltInBells(Set<String> bellIds) async {
     _disabledBuiltIns = Set.from(bellIds);
   }
+
+  @override
+  Future<bool> loadOfflineMode() async => false;
+
+  @override
+  Future<void> saveOfflineMode(bool isOffline) async {}
 }

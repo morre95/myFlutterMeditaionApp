@@ -23,6 +23,16 @@ class UnsupportedSourceException implements Exception {
   String toString() => 'Unsupported audio source: ${kind.name}';
 }
 
+/// Offline mode forbids cloud playback and [source] has no device copy.
+class NotAvailableOfflineException implements Exception {
+  const NotAvailableOfflineException(this.source);
+
+  final AudioSource source;
+
+  @override
+  String toString() => '${source.displayName} is not available offline';
+}
+
 /// Turns an [AudioSource] into a [PlayableMedia] the audio player can load.
 abstract interface class PlaybackSourceResolver {
   Future<PlayableMedia> resolve(AudioSource source);

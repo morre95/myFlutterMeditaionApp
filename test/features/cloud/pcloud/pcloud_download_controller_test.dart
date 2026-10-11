@@ -67,6 +67,31 @@ void main() {
   );
 
   test(
+    'removing a copy deletes only device storage and survives a restart',
+    () async {
+      final downloads = controller();
+      final download = downloads.download(_rain);
+      final transfer = await cloud.nextTransfer();
+      transfer.add([1, 2, 3, 4]);
+      await transfer.close();
+      await download;
+      final requestsBeforeRemoval = cloud.requestCount;
+
+      await downloads.remove(_rain);
+
+      expect(
+        downloads.stateOf(_rain).status,
+        PCloudDownloadStatus.notDownloaded,
+      );
+      expect(await root.list().toList(), isEmpty);
+      expect(cloud.requestCount, requestsBeforeRemoval);
+      final restarted = controller();
+      await restarted.load();
+      expect(restarted.offlineCopyOf(_rain), isNull);
+    },
+  );
+
+  test(
     'cancel stops a stalled transfer, leaves no copy, and retry completes',
     () async {
       final downloads = controller();
@@ -397,6 +422,9 @@ class _ControlledPCloud {
 
   int transferCount = 0;
 
+  /// Every request to pCloud, API calls and file transfers alike.
+  int requestCount = 0;
+
   /// Set to make every request fail as if the device were offline.
   bool offline = false;
 
@@ -407,6 +435,7 @@ class _ControlledPCloud {
   late final PCloudService service = PCloudService(
     session: const _FakeSession(),
     client: MockClient.streaming((request, _) async {
+      requestCount++;
       if (offline) throw http.ClientException('Network is unreachable');
       if (request.url.path == '/getfilelink') {
         return http.StreamedResponse(
