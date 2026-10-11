@@ -7,6 +7,36 @@ import 'package:my_meditation_app/shared/domain/audio_source.dart';
 
 void main() {
   test(
+    'removing an import deletes the app copy, never the original file',
+    () async {
+      final root = await Directory.systemTemp.createTemp('remove-library-');
+      addTearDown(() => root.delete(recursive: true));
+      final original = await File(
+        '${root.path}/rain.wav',
+      ).writeAsBytes([1, 2, 3]);
+      final libraryRoot = Directory('${root.path}/library');
+      final library = LocalAudioLibrary(directory: libraryRoot);
+      final sound = (await library.importSources([
+        AudioSource(
+          id: 'original',
+          kind: AudioSourceKind.localFile,
+          displayName: 'rain.wav',
+          reference: original.path,
+        ),
+      ])).single;
+
+      await library.removeSound(sound);
+
+      expect(
+        await LocalAudioLibrary(directory: libraryRoot).loadSounds(),
+        isEmpty,
+      );
+      expect(await libraryRoot.list().toList(), isEmpty);
+      expect(await original.readAsBytes(), [1, 2, 3]);
+    },
+  );
+
+  test(
     'cleanup failure keeps safe import error and does not leave batch sounds available',
     () async {
       final root = await Directory.systemTemp.createTemp('cleanup-library-');
