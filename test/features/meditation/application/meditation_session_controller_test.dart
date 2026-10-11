@@ -224,6 +224,35 @@ void main() {
         next.dispose();
       });
     });
+
+    test('Resume continues the remaining time from the saved position', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 14));
+        h.audio.positions.add(const Duration(seconds: 14));
+        async.elapse(const Duration(seconds: 3));
+        final next = h.kill();
+        next.session.load();
+        async.flushMicrotasks();
+
+        next.session.resume();
+        async.flushMicrotasks();
+        expect(next.audio.loaded, [_rain.reference]);
+        expect(next.audio.seekPosition, const Duration(seconds: 14));
+        expect(next.session.state.status, MeditationSessionStatus.running);
+        async.elapse(const Duration(seconds: 44));
+        expect(next.session.remaining, const Duration(seconds: 1));
+        async.elapse(const Duration(seconds: 1));
+        expect(next.session.state.status, MeditationSessionStatus.completed);
+        expect(
+          next.history.sessions.single.actualDuration,
+          const Duration(minutes: 1),
+        );
+        expect(next.history.sessions.single.outcome, SessionOutcome.completed);
+        next.dispose();
+      });
+    });
   });
 
   test('an interruption silences the ending bell without auto-resume', () {

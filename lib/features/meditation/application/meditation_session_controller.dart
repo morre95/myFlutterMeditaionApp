@@ -508,7 +508,7 @@ class MeditationSessionController extends ChangeNotifier {
       return;
     }
     final command = ++_command;
-    final nextStatus = _isStream
+    final nextStatus = _isStream || _needsReload
         ? MeditationSessionStatus.loading
         : MeditationSessionStatus.running;
     _setState(_state.copyWith(status: nextStatus, clearError: true));
@@ -522,6 +522,8 @@ class MeditationSessionController extends ChangeNotifier {
     if (!await _requestFocus(entry, command)) return;
     if (_isStream) {
       await _player.play(entry, position: _streamPosition);
+    } else if (_needsReload) {
+      await _player.play(entry, position: _resumePosition);
     } else if (_player.state.status == LocalPlaybackStatus.paused) {
       await _player.resume();
     } else {
@@ -616,6 +618,7 @@ class MeditationSessionController extends ChangeNotifier {
     switch (_player.state.status) {
       case LocalPlaybackStatus.playing
           when _countingSince == null && _pendingPause == null:
+        _needsReload = false;
         _setState(_state.copyWith(status: MeditationSessionStatus.running));
         _startCounting();
       case LocalPlaybackStatus.completed when _countingSince != null:
