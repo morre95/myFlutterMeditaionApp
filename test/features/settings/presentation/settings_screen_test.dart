@@ -12,7 +12,9 @@ import 'package:my_meditation_app/shared/domain/audio_source.dart';
 
 void main() {
   Future<AppSettingsController> pumpSettings(WidgetTester tester) async {
-    final settings = AppSettingsController(repository: _FakeAppSettingsRepository());
+    final settings = AppSettingsController(
+      repository: _FakeAppSettingsRepository(),
+    );
     final auth = PCloudAuthController(store: _StubSessionStore());
 
     await tester.pumpWidget(
@@ -38,7 +40,9 @@ void main() {
     }
   });
 
-  testWidgets('disabling a preinstalled bell marks it disabled', (tester) async {
+  testWidgets('disabling a preinstalled bell marks it disabled', (
+    tester,
+  ) async {
     final settings = await pumpSettings(tester);
 
     // Toggle the first built-in bell off.
@@ -95,6 +99,12 @@ class _FakeAppSettingsRepository implements AppSettingsRepository {
   Future<void> saveDisabledBuiltInBells(Set<String> bellIds) async {
     _disabledBuiltIns = Set.from(bellIds);
   }
+
+  @override
+  Future<bool> loadOfflineMode() async => false;
+
+  @override
+  Future<void> saveOfflineMode(bool isOffline) async {}
 }
 
 class _FakeLocalAudioFilePicker implements LocalAudioFilePicker {
