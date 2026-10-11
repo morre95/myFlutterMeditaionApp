@@ -323,6 +323,33 @@ void main() {
       });
     });
 
+    test('a missing sound keeps the restored session paused for End', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 17));
+        final next = h.kill();
+        next.audio.loadError = const FileSystemException('missing');
+        next.session.load();
+        async.flushMicrotasks();
+
+        next.session.resume();
+        async.flushMicrotasks();
+        expect(next.session.state.status, MeditationSessionStatus.paused);
+        expect(next.session.state.errorMessage, 'Could not play rain.wav.');
+        async.elapse(const Duration(minutes: 1));
+        expect(next.session.remaining, const Duration(seconds: 45));
+        expect(next.audio.isPlaying, isFalse);
+
+        next.session.end();
+        async.flushMicrotasks();
+        final recorded = next.history.sessions.single;
+        expect(recorded.actualDuration, const Duration(seconds: 15));
+        expect(recorded.outcome, SessionOutcome.endedEarly);
+        next.dispose();
+      });
+    });
+
     test('Resume continues the remaining time from the saved position', () {
       fakeAsync((async) {
         final h = _Harness(async);

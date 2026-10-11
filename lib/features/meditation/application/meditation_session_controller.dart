@@ -157,12 +157,12 @@ class MeditationSessionController extends ChangeNotifier {
     _streamWatchdog = Timer(const Duration(seconds: 5), () {
       if (_state.status == MeditationSessionStatus.loading ||
           _state.status == MeditationSessionStatus.running) {
-        _interruptStream('Sound is buffering. Resume to try again.');
+        _interruptPlayback('Sound is buffering. Resume to try again.');
       }
     });
   }
 
-  void _interruptStream(String? message) {
+  void _interruptPlayback(String? message) {
     ++_command;
     _streamWatchdog?.cancel();
     _streamWatchdog = null;
@@ -200,7 +200,7 @@ class MeditationSessionController extends ChangeNotifier {
   void _onStreamChanged() {
     final player = _player.state;
     if (player.status == LocalPlaybackStatus.error) {
-      _interruptStream(player.errorMessage);
+      _interruptPlayback(player.errorMessage);
       return;
     }
     if (player.status == LocalPlaybackStatus.playing && _pendingPause == null) {
@@ -224,7 +224,7 @@ class MeditationSessionController extends ChangeNotifier {
       _streamWatchdog?.cancel();
       _streamWatchdog = null;
       if (_activeElapsed - _playThroughStart < minimumPlayThrough) {
-        _interruptStream('Sound ended before it could be played.');
+        _interruptPlayback('Sound ended before it could be played.');
         return;
       }
       _playThroughStart = _activeElapsed;
@@ -470,7 +470,7 @@ class MeditationSessionController extends ChangeNotifier {
             .catchError((Object error) {
               if (identical(_entry, entry) &&
                   identical(_pendingPause, pending)) {
-                _interruptStream(
+                _interruptPlayback(
                   'Could not pause the sound. Resume to try again.',
                 );
               }
@@ -607,7 +607,7 @@ class MeditationSessionController extends ChangeNotifier {
     if (_isStream &&
         status == MeditationSessionStatus.paused &&
         _player.state.status == LocalPlaybackStatus.error) {
-      _interruptStream(_player.state.errorMessage);
+      _interruptPlayback(_player.state.errorMessage);
       return;
     }
     if (status != MeditationSessionStatus.loading &&
@@ -636,6 +636,9 @@ class MeditationSessionController extends ChangeNotifier {
         }
         _playThroughStart = _activeElapsed;
         unawaited(_player.play(_entry!));
+      case LocalPlaybackStatus.error when _needsReload:
+        // Restored progress stays paused for a later Resume or End.
+        _interruptPlayback(_player.state.errorMessage);
       case LocalPlaybackStatus.error:
         // Without audio there is no session, so nothing may count down.
         _returnToSetup(errorMessage: _player.state.errorMessage);
