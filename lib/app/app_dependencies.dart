@@ -74,6 +74,11 @@ class AppDependencies {
     ElapsedClock? clock,
   }) {
     final library = localAudioLibrary ?? LocalAudioLibrary();
+    final settings =
+        appSettingsController ??
+        AppSettingsController(
+          repository: SharedPreferencesAppSettingsRepository(),
+        );
     final auth = pcloudAuthController ?? PCloudAuthController();
     final service = pcloudService ?? PCloudService(session: auth);
     final downloads = PCloudDownloadController(
@@ -87,11 +92,7 @@ class AppDependencies {
       playlistController:
           playlistController ??
           PlaylistController(repository: SharedPreferencesPlaylistRepository()),
-      appSettingsController:
-          appSettingsController ??
-          AppSettingsController(
-            repository: SharedPreferencesAppSettingsRepository(),
-          ),
+      appSettingsController: settings,
       historyController:
           historyController ??
           HistoryController(repository: SharedPreferencesSessionRepository()),
@@ -114,7 +115,11 @@ class AppDependencies {
           SharedPreferencesMeditationSettingsRepository(),
       playbackSourceResolver:
           playbackSourceResolver ??
-          PCloudPlaybackSourceResolver(service: service, downloads: downloads),
+          PCloudPlaybackSourceResolver(
+            service: service,
+            downloads: downloads,
+            isOffline: () => settings.isOfflineMode,
+          ),
     );
   }
 

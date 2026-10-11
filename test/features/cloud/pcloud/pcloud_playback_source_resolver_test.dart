@@ -37,6 +37,7 @@ void main() {
     final resolver = PCloudPlaybackSourceResolver(
       service: serviceReturning('https://edge.pcloud.com/stream/rain.mp3'),
       downloads: noDownloads(),
+      isOffline: () => false,
     );
     const source = AudioSource(
       id: 'pcloud:100',
@@ -51,10 +52,42 @@ void main() {
     expect(media.locator, 'https://edge.pcloud.com/stream/rain.mp3');
   });
 
+  test(
+    'offline, refuses an undownloaded pCloud sound without a request',
+    () async {
+      var requests = 0;
+      final service = PCloudService(
+        session: _FakeSession(),
+        client: MockClient((request) async {
+          requests++;
+          return http.Response('{}', 200);
+        }),
+      );
+      final resolver = PCloudPlaybackSourceResolver(
+        service: service,
+        downloads: noDownloads(),
+        isOffline: () => true,
+      );
+      const source = AudioSource(
+        id: 'pcloud:100',
+        kind: AudioSourceKind.pCloud,
+        displayName: 'rain.mp3',
+        reference: '100',
+      );
+
+      await expectLater(
+        resolver.resolve(source),
+        throwsA(isA<NotAvailableOfflineException>()),
+      );
+      expect(requests, 0);
+    },
+  );
+
   test('delegates local sources to the local resolver', () async {
     final resolver = PCloudPlaybackSourceResolver(
       service: serviceReturning('https://unused'),
       downloads: noDownloads(),
+      isOffline: () => false,
     );
     const source = AudioSource(
       id: 'local:/music/rain.wav',
@@ -110,6 +143,7 @@ void main() {
     final resolver = PCloudPlaybackSourceResolver(
       service: offline,
       downloads: downloads,
+      isOffline: () => false,
     );
 
     final media = await resolver.resolve(source);

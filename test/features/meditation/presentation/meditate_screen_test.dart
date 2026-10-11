@@ -177,6 +177,7 @@ void main() {
                 directory: Directory('${app.root.path}/pcloud_downloads'),
               ),
             ),
+            isOffline: () => false,
           ),
         ),
         meditationBellPlayer: _SilentBellPlayer(),
