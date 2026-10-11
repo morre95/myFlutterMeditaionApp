@@ -176,6 +176,18 @@ class PCloudDownloadController extends ChangeNotifier {
     }
   }
 
+  /// Deletes the device copy of [source]; the pCloud file stays in the cloud
+  /// and can be downloaded again.
+  Future<void> remove(AudioSource source) async {
+    final copy = offlineCopyOf(source);
+    if (copy == null) return;
+    await _store.remove(copy);
+    if (identical(offlineCopyOf(source), copy)) {
+      _states.remove(source.reference);
+      notifyListeners();
+    }
+  }
+
   /// Stops [source]'s transfer at once, whether its request is still pending
   /// or no bytes are arriving; anything the abandoned transfer reports later
   /// is ignored.

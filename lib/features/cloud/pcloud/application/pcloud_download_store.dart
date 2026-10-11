@@ -110,6 +110,22 @@ class PCloudDownloadStore {
     }
   }
 
+  /// Deletes [copy] from the device; the pCloud file is untouched.
+  ///
+  /// Renaming to a hidden name withdraws the copy at once; if the delete
+  /// then fails, [load] removes the leftover like interrupted staging.
+  Future<void> remove(PCloudOfflineCopy copy) async {
+    final directory = Directory(path.dirname(copy.path));
+    final suffix = Random.secure().nextInt(1 << 32).toRadixString(16);
+    final withdrawn = await directory.rename(
+      path.join(
+        path.dirname(directory.path),
+        '.${copy.source.reference}-removed-$suffix',
+      ),
+    );
+    await withdrawn.delete(recursive: true);
+  }
+
   /// Writes [bytes] as the offline copy of [source] and commits it.
   Future<PCloudOfflineCopy> save(
     AudioSource source,
