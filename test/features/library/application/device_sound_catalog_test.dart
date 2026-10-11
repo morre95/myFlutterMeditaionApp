@@ -89,6 +89,44 @@ void main() {
       {'waves.wav': 3, 'rain.mp3': 5},
     );
   });
+
+  test(
+    'removals keep originals and cloud files and survive a restart',
+    () async {
+      final catalog = await device.launch();
+      final sounds = await catalog.load();
+
+      for (final sound in sounds) {
+        await catalog.remove(sound);
+      }
+
+      expect(await (await device.launch()).load(), isEmpty);
+      expect(await device.original.readAsBytes(), [1, 2, 3]);
+      expect(device.cloudRequests, 0);
+    },
+  );
+
+  test('refuses to remove a sound an active session is using', () async {
+    final catalog = await device.launch();
+    device.activeSoundIds = {device.imported.id, _rain.id};
+
+    for (final sound in await catalog.load()) {
+      await expectLater(
+        catalog.remove(sound),
+        throwsA(
+          isA<SoundInUseException>().having(
+            (error) => error.message,
+            'message',
+            '${sound.displayName} is playing in an active session. '
+                'End the session before removing it.',
+          ),
+        ),
+      );
+    }
+
+    device.activeSoundIds = {};
+    expect(await (await device.launch()).load(), hasLength(2));
+  });
 }
 
 class _FakeSession implements PCloudSessionProvider {

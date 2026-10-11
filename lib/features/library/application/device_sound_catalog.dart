@@ -28,4 +28,29 @@ class DeviceSoundCatalog {
     }
     return [...imports, ...downloads];
   }
+
+  /// Deletes the device copy of [sound] without touching its original file
+  /// or cloud object. A sound used by an active session is kept.
+  Future<void> remove(AudioSource sound) async {
+    if (_isInActiveSession(sound)) throw SoundInUseException(sound);
+    if (sound.kind == AudioSourceKind.pCloud) {
+      await _downloads.remove(sound);
+    } else {
+      await _library.removeSound(sound);
+    }
+  }
+}
+
+/// [sound] cannot be removed while a session plays it.
+class SoundInUseException implements Exception {
+  const SoundInUseException(this.sound);
+
+  final AudioSource sound;
+
+  String get message =>
+      '${sound.displayName} is playing in an active session. '
+      'End the session before removing it.';
+
+  @override
+  String toString() => message;
 }
