@@ -56,18 +56,49 @@ class _App {
   final AudioSource? sound;
   var audio = _FakeLocalAudioPlayer();
   var now = Duration.zero;
+
+  /// Requests to pCloud; the network is unreachable in these tests.
+  var cloudRequests = 0;
   late AppDependencies deps = _launch();
 
-  AppDependencies _launch() => AppDependencies(
-    localAudioLibrary: library,
-    meditationPlaybackController: LocalAudioPlaybackController(player: audio),
-    meditationBellPlayer: _SilentBellPlayer(),
-    pcloudDownloadStore: PCloudDownloadStore(
+  /// Saves a downloaded pCloud copy, as a finished download would.
+  Future<AudioSource> download(String name) async {
+    final source = AudioSource(
+      id: 'pcloud:7',
+      kind: AudioSourceKind.pCloud,
+      displayName: name,
+      reference: '7',
+    );
+    await PCloudDownloadStore(
       directory: Directory('${root.path}/pcloud_downloads'),
-    ),
-    clock: () => now,
-    pcloudAuthController: PCloudAuthController(store: _StubSessionStore()),
-  );
+    ).save(source, Stream.value([1, 2]));
+    return source;
+  }
+
+  AppDependencies _launch() {
+    final auth = PCloudAuthController(store: _StubSessionStore());
+    return AppDependencies(
+      localAudioLibrary: library,
+      pcloudAuthController: auth,
+      pcloudService: PCloudService(
+        session: auth,
+        client: MockClient((_) async {
+          cloudRequests++;
+          throw http.ClientException('Network is unreachable');
+        }),
+      ),
+      meditationPlaybackController: LocalAudioPlaybackController(
+        player: audio,
+        // The app's resolver exists only once the dependencies do.
+        resolver: _AppResolver(() => deps.playbackSourceResolver),
+      ),
+      meditationBellPlayer: _SilentBellPlayer(),
+      pcloudDownloadStore: PCloudDownloadStore(
+        directory: Directory('${root.path}/pcloud_downloads'),
+      ),
+      clock: () => now,
+    );
+  }
 
   Future<void> open(WidgetTester tester) async {
     await tester.pumpWidget(
@@ -359,6 +390,67 @@ void main() {
     });
   });
 
+  testWidgets('Offline mode plays device copies and hides pCloud browsing', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      await app.download('ocean.mp3');
+      await app.deps.init();
+      await app.deps.appSettingsController.setOfflineMode(true);
+      await app.open(tester);
+
+      expect(find.text('Choose from pCloud'), findsNothing);
+      await _chooseSound(tester, 'ocean.mp3');
+      await tester.tap(find.text('Start'));
+      await _pumpUntil(tester, find.text('Pause'));
+      // Verifying the copy on disk is real I/O.
+      for (var i = 0; i < 200 && app.audio.loadedPath == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      expect(app.audio.loadedPath, endsWith('pcloud_downloads/7/audio.mp3'));
+      expect(app.cloudRequests, 0);
+      await app.deps.meditationSessionController.end();
+      await app.dispose(tester);
+    });
+  });
+
+  testWidgets('Offline mode cannot start a pCloud sound without a copy', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      await SharedPreferencesMeditationSettingsRepository().save(
+        const MeditationSettings(
+          sound: AudioSource(
+            id: 'pcloud:9',
+            kind: AudioSourceKind.pCloud,
+            displayName: 'forest.mp3',
+            reference: '9',
+          ),
+          duration: Duration(minutes: 20),
+          bell: BellSelection.builtIn('bell_1'),
+          isBellEnabled: true,
+        ),
+      );
+      await app.deps.init();
+      await app.deps.appSettingsController.setOfflineMode(true);
+      await app.open(tester);
+
+      await _pumpUntil(
+        tester,
+        find.text('forest.mp3 is not available offline. Choose another sound.'),
+      );
+      final start = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Start'),
+      );
+      expect(start.onPressed, isNull);
+      expect(app.cloudRequests, 0);
+      await app.dispose(tester);
+    });
+  });
+
   testWidgets('the ending bell can be switched off', (tester) async {
     await tester.runAsync(() async {
       final app = await _App.create();
@@ -445,6 +537,16 @@ void main() {
       await app.dispose(tester);
     });
   });
+}
+
+class _AppResolver implements PlaybackSourceResolver {
+  _AppResolver(this._resolver);
+
+  final PlaybackSourceResolver Function() _resolver;
+
+  @override
+  Future<PlayableMedia> resolve(AudioSource source) =>
+      _resolver().resolve(source);
 }
 
 class _SilentBellPlayer implements BellPlayer {
