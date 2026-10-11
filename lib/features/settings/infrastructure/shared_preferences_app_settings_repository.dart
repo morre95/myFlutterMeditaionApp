@@ -5,8 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../shared/domain/audio_source.dart';
 
 /// Persists user preferences that are shared across the app — the library of
-/// custom timer bells the user has added and the set of preinstalled bells they
-/// have disabled.
+/// custom timer bells the user has added, the set of preinstalled bells they
+/// have disabled, and whether Offline mode is on.
 abstract interface class AppSettingsRepository {
   Future<List<AudioSource>> loadCustomBells();
 
@@ -15,12 +15,17 @@ abstract interface class AppSettingsRepository {
   Future<Set<String>> loadDisabledBuiltInBells();
 
   Future<void> saveDisabledBuiltInBells(Set<String> bellIds);
+
+  Future<bool> loadOfflineMode();
+
+  Future<void> saveOfflineMode(bool isOffline);
 }
 
 class SharedPreferencesAppSettingsRepository implements AppSettingsRepository {
   static const _customBellsKey = 'app_settings_custom_bells_v1';
   static const _disabledBuiltInBellsKey =
       'app_settings_disabled_builtin_bells_v1';
+  static const _offlineModeKey = 'app_settings_offline_mode_v1';
 
   @override
   Future<List<AudioSource>> loadCustomBells() async {
@@ -54,6 +59,21 @@ class SharedPreferencesAppSettingsRepository implements AppSettingsRepository {
   @override
   Future<void> saveDisabledBuiltInBells(Set<String> bellIds) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_disabledBuiltInBellsKey, jsonEncode(bellIds.toList()));
+    await prefs.setString(
+      _disabledBuiltInBellsKey,
+      jsonEncode(bellIds.toList()),
+    );
+  }
+
+  @override
+  Future<bool> loadOfflineMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_offlineModeKey) ?? false;
+  }
+
+  @override
+  Future<void> saveOfflineMode(bool isOffline) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_offlineModeKey, isOffline);
   }
 }

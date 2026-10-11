@@ -5,32 +5,33 @@ import '../../../cloud/pcloud/application/pcloud_auth_controller.dart';
 import '../../../cloud/pcloud/application/pcloud_service.dart';
 import '../../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../../library/presentation/pcloud_browser_screen.dart';
-import '../../../library/application/local_audio_library.dart';
+import '../../../library/application/device_sound_catalog.dart';
 import '../../../settings/application/app_settings_controller.dart';
 import '../../../timer/presentation/widgets/bell_dropdown.dart';
 import '../../application/meditation_session_controller.dart';
 
-/// Chooses one imported sound, a duration, and the optional ending bell before
-/// starting a session.
+/// Chooses one sound stored on the device (or, online, from pCloud), a
+/// duration, and the optional ending bell before starting a session.
 ///
-/// The library is read each time setup appears, so it lists current sounds and
-/// revalidates the remembered one before Start.
+/// Device sounds are read each time setup appears, so it lists current sounds
+/// and revalidates the remembered one before Start. Offline mode offers only
+/// device sounds.
 class SessionSetupView extends StatefulWidget {
   const SessionSetupView({
     super.key,
     required this.session,
-    required this.library,
+    required this.sounds,
     required this.appSettings,
     required this.cloudAuth,
     required this.cloudService,
   });
 
   final MeditationSessionController session;
-  final LocalAudioLibrary library;
+  final DeviceSoundCatalog sounds;
   final PCloudAuthController cloudAuth;
   final PCloudService cloudService;
 
-  /// Supplies the enabled built-in bells and custom bells to choose from.
+  /// Supplies Offline mode and the enabled built-in and custom bells.
   final AppSettingsController appSettings;
 
   @override
@@ -38,7 +39,7 @@ class SessionSetupView extends StatefulWidget {
 }
 
 class _SessionSetupViewState extends State<SessionSetupView> {
-  late final Future<List<AudioSource>> _sounds = widget.library.loadSounds();
+  late final Future<List<AudioSource>> _sounds = widget.sounds.load();
 
   Future<void> _chooseCloud() async {
     if (!widget.cloudAuth.isConnected) {
@@ -68,114 +69,124 @@ class _SessionSetupViewState extends State<SessionSetupView> {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.appSettings,
+      builder: (context, _) => FutureBuilder<List<AudioSource>>(
+        future: _sounds,
+        builder: _buildSetup,
+      ),
+    );
+  }
+
+  Widget _buildSetup(
+    BuildContext context,
+    AsyncSnapshot<List<AudioSource>> snapshot,
+  ) {
     final session = widget.session;
     final state = session.state;
-    return FutureBuilder<List<AudioSource>>(
-      future: _sounds,
-      builder: (context, snapshot) {
-        final available = snapshot.data ?? const <AudioSource>[];
-        final selected = state.sound?.kind == AudioSourceKind.pCloud
+    final isOffline = widget.appSettings.isOfflineMode;
+    final available = snapshot.data ?? const <AudioSource>[];
+    final stored = available
+        .where((sound) => sound.id == state.sound?.id)
+        .firstOrNull;
+    // Online, a pCloud sound without a device copy streams.
+    final selected =
+        stored ??
+        (!isOffline && state.sound?.kind == AudioSourceKind.pCloud
             ? state.sound
-            : available
-                  .where((sound) => sound.id == state.sound?.id)
-                  .firstOrNull;
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _SoundPicker(
-                      snapshot: snapshot,
-                      selected: selected?.kind == AudioSourceKind.localFile
-                          ? selected
-                          : null,
-                      onSelected: session.selectSound,
-                    ),
-                    TextButton.icon(
-                      onPressed: _chooseCloud,
-                      icon: const Icon(Icons.cloud_outlined),
-                      label: const Text('Choose from pCloud'),
-                    ),
-                    if (selected?.kind == AudioSourceKind.pCloud)
-                      Text(selected!.displayName),
-                    if (snapshot.hasData &&
-                        state.sound != null &&
-                        selected == null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        '${state.sound!.displayName} is no longer available. '
-                        'Choose another sound.',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                    const Text('Duration (minutes)'),
-                    Slider(
-                      key: const Key('meditate-duration-slider'),
-                      min: MeditationSessionController.minMinutes.toDouble(),
-                      max: MeditationSessionController.maxMinutes.toDouble(),
-                      divisions:
-                          MeditationSessionController.maxMinutes -
-                          MeditationSessionController.minMinutes,
-                      label: '${state.duration.inMinutes} min',
-                      value: state.duration.inMinutes.toDouble(),
-                      onChanged: (value) =>
-                          session.setDuration(Duration(minutes: value.round())),
-                    ),
-                    Text('${state.duration.inMinutes} minutes'),
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      key: const Key('meditate-bell-switch'),
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Ring a bell at the end'),
-                      value: state.isBellEnabled,
-                      onChanged: session.setBellEnabled,
-                    ),
-                    ListenableBuilder(
-                      listenable: widget.appSettings,
-                      builder: (context, _) => BellDropdown(
-                        selection: session.bell,
-                        builtIns: widget.appSettings.enabledBuiltInBells,
-                        customBells: widget.appSettings.customBells,
-                        onChanged: state.isBellEnabled
-                            ? session.selectBell
-                            : null,
-                      ),
-                    ),
-                  ],
+            : null);
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SoundPicker(
+                  snapshot: snapshot,
+                  selected: stored,
+                  onSelected: session.selectSound,
                 ),
-              ),
+                if (!isOffline)
+                  TextButton.icon(
+                    onPressed: _chooseCloud,
+                    icon: const Icon(Icons.cloud_outlined),
+                    label: const Text('Choose from pCloud'),
+                  ),
+                if (selected != null && stored == null)
+                  Text(selected.displayName),
+                if (snapshot.hasData &&
+                    state.sound != null &&
+                    selected == null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    isOffline && state.sound!.kind == AudioSourceKind.pCloud
+                        ? '${state.sound!.displayName} is not available '
+                              'offline. Choose another sound.'
+                        : '${state.sound!.displayName} is no longer '
+                              'available. Choose another sound.',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                const Text('Duration (minutes)'),
+                Slider(
+                  key: const Key('meditate-duration-slider'),
+                  min: MeditationSessionController.minMinutes.toDouble(),
+                  max: MeditationSessionController.maxMinutes.toDouble(),
+                  divisions:
+                      MeditationSessionController.maxMinutes -
+                      MeditationSessionController.minMinutes,
+                  label: '${state.duration.inMinutes} min',
+                  value: state.duration.inMinutes.toDouble(),
+                  onChanged: (value) =>
+                      session.setDuration(Duration(minutes: value.round())),
+                ),
+                Text('${state.duration.inMinutes} minutes'),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  key: const Key('meditate-bell-switch'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Ring a bell at the end'),
+                  value: state.isBellEnabled,
+                  onChanged: session.setBellEnabled,
+                ),
+                BellDropdown(
+                  selection: session.bell,
+                  builtIns: widget.appSettings.enabledBuiltInBells,
+                  customBells: widget.appSettings.customBells,
+                  onChanged: state.isBellEnabled ? session.selectBell : null,
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Center(
-              child: FilledButton(
-                onPressed: selected == null
-                    ? null
-                    : () {
-                        // Play the library's current copy, never a
-                        // remembered locator that may have moved.
-                        session.selectSound(selected);
-                        session.start();
-                      },
-                child: const Text('Start'),
-              ),
-            ),
-            if (state.errorMessage != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                state.errorMessage!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-          ],
-        );
-      },
+          ),
+        ),
+        const SizedBox(height: 16),
+        Center(
+          child: FilledButton(
+            onPressed: selected == null
+                ? null
+                : () {
+                    // Play the current device copy, never a
+                    // remembered locator that may have moved.
+                    session.selectSound(selected);
+                    session.start();
+                  },
+            child: const Text('Start'),
+          ),
+        ),
+        if (state.errorMessage != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            state.errorMessage!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+      ],
     );
   }
 }

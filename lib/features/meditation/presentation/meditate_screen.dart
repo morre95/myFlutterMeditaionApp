@@ -25,7 +25,7 @@ class MeditateScreen extends StatelessWidget {
                 session.state.status == MeditationSessionStatus.setup
                 ? SessionSetupView(
                     session: session,
-                    library: deps.localAudioLibrary,
+                    sounds: deps.deviceSoundCatalog,
                     appSettings: deps.appSettingsController,
                     cloudAuth: deps.pcloudAuthController,
                     cloudService: deps.pcloudService,

@@ -189,6 +189,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildPCloudCard(context),
                   const SizedBox(height: 12),
                   Card(
+                    child: SwitchListTile(
+                      secondary: const Icon(Icons.cloud_off),
+                      title: const Text('Offline mode'),
+                      subtitle: const Text(
+                        'Use only imported and downloaded sounds; nothing '
+                        'streams from pCloud.',
+                      ),
+                      value: _settings.isOfflineMode,
+                      onChanged: _settings.setOfflineMode,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(

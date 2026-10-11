@@ -12,7 +12,9 @@ import 'package:my_meditation_app/shared/domain/audio_source.dart';
 
 void main() {
   Future<AppSettingsController> pumpSettings(WidgetTester tester) async {
-    final settings = AppSettingsController(repository: _FakeAppSettingsRepository());
+    final settings = AppSettingsController(
+      repository: _FakeAppSettingsRepository(),
+    );
     final auth = PCloudAuthController(store: _StubSessionStore());
 
     await tester.pumpWidget(
@@ -32,17 +34,31 @@ void main() {
     await pumpSettings(tester);
 
     expect(find.text('Preinstalled'), findsOneWidget);
-    expect(find.byType(SwitchListTile), findsNWidgets(builtInBells.length));
+    // One toggle per preinstalled bell, plus Offline mode.
+    expect(find.byType(SwitchListTile), findsNWidgets(builtInBells.length + 1));
     for (final bell in builtInBells) {
       expect(find.text(bell.label), findsOneWidget);
     }
   });
 
-  testWidgets('disabling a preinstalled bell marks it disabled', (tester) async {
+  testWidgets('Offline mode can be switched on', (tester) async {
+    final settings = await pumpSettings(tester);
+
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Offline mode'));
+    await tester.pumpAndSettle();
+
+    expect(settings.isOfflineMode, isTrue);
+  });
+
+  testWidgets('disabling a preinstalled bell marks it disabled', (
+    tester,
+  ) async {
     final settings = await pumpSettings(tester);
 
     // Toggle the first built-in bell off.
-    await tester.tap(find.byType(SwitchListTile).first);
+    await tester.tap(
+      find.widgetWithText(SwitchListTile, builtInBells.first.label),
+    );
     await tester.pumpAndSettle();
 
     expect(settings.isBuiltInBellEnabled(builtInBells.first.id), isFalse);
@@ -61,7 +77,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // The last bell is the only one still enabled — try to turn it off.
-    final lastSwitch = find.byType(SwitchListTile).last;
+    final lastSwitch = find.widgetWithText(
+      SwitchListTile,
+      builtInBells.last.label,
+    );
     await tester.ensureVisible(lastSwitch);
     await tester.pumpAndSettle();
     await tester.tap(lastSwitch);
@@ -95,6 +114,12 @@ class _FakeAppSettingsRepository implements AppSettingsRepository {
   Future<void> saveDisabledBuiltInBells(Set<String> bellIds) async {
     _disabledBuiltIns = Set.from(bellIds);
   }
+
+  @override
+  Future<bool> loadOfflineMode() async => false;
+
+  @override
+  Future<void> saveOfflineMode(bool isOffline) async {}
 }
 
 class _FakeLocalAudioFilePicker implements LocalAudioFilePicker {

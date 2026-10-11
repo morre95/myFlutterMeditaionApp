@@ -679,6 +679,16 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('Play Evening'));
         await tester.pumpAndSettle();
+        // Resolution verifies the copy on disk, which is real I/O.
+        for (
+          var i = 0;
+          i < 200 &&
+              deps.playbackController.state.status ==
+                  LocalPlaybackStatus.loading;
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
 
         expect(
           deps.playbackController.state.status,
@@ -691,7 +701,156 @@ void main() {
       });
     },
   );
+
+  testWidgets(
+    'Offline Music plays only downloaded tracks and offers no pCloud browsing',
+    (tester) async {
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues({});
+        final root = await Directory.systemTemp.createTemp('music-filter-');
+        await PCloudDownloadStore(
+          directory: root,
+        ).save(_rain, Stream.value([7, 8, 9]));
+        var cloudRequests = 0;
+        final auth = PCloudAuthController(
+          store: _StubSessionStore(
+            const PCloudSession(authToken: 't', apiHost: 'eapi.pcloud.com'),
+          ),
+        );
+        await auth.loadStoredSession();
+        final playlists = PlaylistController(
+          repository: _FakePlaylistRepository([
+            _evening([_forest, _rain]),
+          ]),
+        );
+        final audio = _FakeLocalAudioPlayer();
+        late final AppDependencies deps;
+        deps = AppDependencies(
+          playlistController: playlists,
+          pcloudAuthController: auth,
+          pcloudService: PCloudService(
+            session: auth,
+            client: MockClient((_) async {
+              cloudRequests++;
+              return http.Response('{"result":0}', 200);
+            }),
+          ),
+          pcloudDownloadStore: PCloudDownloadStore(directory: root),
+          playbackController: LocalAudioPlaybackController(
+            player: audio,
+            resolver: _AppResolver(() => deps.playbackSourceResolver),
+          ),
+        );
+        await playlists.load();
+        playlists.select('evening');
+        await deps.pcloudDownloadController.load();
+        await deps.appSettingsController.setOfflineMode(true);
+        await tester.pumpWidget(_musicApp(deps));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Not available offline'), findsOneWidget);
+        expect(_trackPlayButton(tester, 'forest.mp3').onPressed, isNull);
+        expect(_trackPlayButton(tester, 'rain.mp3').onPressed, isNotNull);
+
+        await tester.tap(find.text('Add files'));
+        await tester.pumpAndSettle();
+        expect(find.text('From pCloud'), findsNothing);
+
+        await tester.tap(find.byTooltip('Play Evening'));
+        await tester.pumpAndSettle();
+        // Resolution verifies the copy on disk, which is real I/O.
+        for (
+          var i = 0;
+          i < 200 &&
+              deps.playbackController.state.status !=
+                  LocalPlaybackStatus.playing;
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+
+        expect(
+          deps.playbackController.state.status,
+          LocalPlaybackStatus.playing,
+        );
+        expect(await File(audio.loadedPath!).readAsBytes(), [7, 8, 9]);
+        expect(cloudRequests, 0);
+        await tester.pumpWidget(const SizedBox.shrink());
+        deps.dispose();
+        await root.delete(recursive: true);
+      });
+    },
+  );
+
+  testWidgets('Online Music keeps undownloaded pCloud tracks playable', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final playlists = PlaylistController(
+      repository: _FakePlaylistRepository([
+        _evening([_forest]),
+      ]),
+    );
+    final deps = AppDependencies(
+      playlistController: playlists,
+      pcloudAuthController: PCloudAuthController(
+        store: _StubSessionStore(null),
+      ),
+      playbackController: LocalAudioPlaybackController(
+        player: _FakeLocalAudioPlayer(),
+      ),
+    );
+    await playlists.load();
+    playlists.select('evening');
+    await tester.pumpWidget(_musicApp(deps));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Not available offline'), findsNothing);
+    expect(_trackPlayButton(tester, 'forest.mp3').onPressed, isNotNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    deps.dispose();
+  });
 }
+
+const _rain = AudioSource(
+  id: 'pcloud:100',
+  kind: AudioSourceKind.pCloud,
+  displayName: 'rain.mp3',
+  reference: '100',
+);
+
+const _forest = AudioSource(
+  id: 'pcloud:200',
+  kind: AudioSourceKind.pCloud,
+  displayName: 'forest.mp3',
+  reference: '200',
+);
+
+Playlist _evening(List<AudioSource> sounds) => Playlist(
+  id: 'evening',
+  name: 'Evening',
+  tracks: [
+    for (final sound in sounds) PlaylistTrack(id: sound.id, source: sound),
+  ],
+  createdAt: DateTime(2026),
+);
+
+Widget _musicApp(AppDependencies deps) => AppScope(
+  dependencies: deps,
+  child: const MaterialApp(
+    home: MusicModeScreen(
+      durationProbe: _FakeDurationProbe(Duration(minutes: 1)),
+    ),
+  ),
+);
+
+IconButton _trackPlayButton(WidgetTester tester, String name) =>
+    tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byTooltip('Play $name'),
+        matching: find.byType(IconButton),
+      ),
+    );
 
 // ---------------------------------------------------------------------------
 // Test doubles

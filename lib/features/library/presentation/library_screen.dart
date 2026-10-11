@@ -8,8 +8,11 @@ import '../../cloud/pcloud/application/pcloud_download_controller.dart';
 import '../../cloud/pcloud/application/pcloud_service.dart';
 import '../../cloud/pcloud/presentation/pcloud_login_dialog.dart';
 import '../../playlists/application/playlist_controller.dart';
+import '../../settings/application/app_settings_controller.dart';
 import '../application/local_wav_picker_service.dart';
+import '../application/device_sound_catalog.dart';
 import '../application/local_audio_library.dart';
+import 'device_storage_screen.dart';
 import 'pcloud_browser_screen.dart';
 
 /// Imports durable local copies, adds pCloud references to playlists, and
@@ -27,6 +30,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   late final PCloudService _pcloudService;
   late final PCloudDownloadController _pcloudDownloads;
   late final LocalAudioFilePicker _picker;
+  late final DeviceSoundCatalog _deviceSounds;
+  late final AppSettingsController _appSettings;
   bool _resolved = false;
   bool _busy = false;
   String? _message;
@@ -42,6 +47,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _pcloudAuth = scope.pcloudAuthController;
     _pcloudService = scope.pcloudService;
     _pcloudDownloads = scope.pcloudDownloadController;
+    _deviceSounds = scope.deviceSoundCatalog;
+    _appSettings = scope.appSettingsController;
   }
 
   /// Ensures there is a target playlist, prompting to pick or create one.
@@ -171,7 +178,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
       body: GradientBackground(
         child: SafeArea(
           child: AnimatedBuilder(
-            animation: Listenable.merge([_playlists, _pcloudAuth]),
+            animation: Listenable.merge([
+              _playlists,
+              _pcloudAuth,
+              _appSettings,
+            ]),
             builder: (context, _) {
               return ListView(
                 padding: const EdgeInsets.all(16),
@@ -200,6 +211,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   const SizedBox(height: 12),
                   _buildPCloudCard(),
+                  const SizedBox(height: 12),
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.storage),
+                      title: const Text('Device storage'),
+                      subtitle: const Text(
+                        'See stored sounds and their sizes, or remove copies.',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              DeviceStorageScreen(catalog: _deviceSounds),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               );
             },
@@ -210,6 +238,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _buildPCloudCard() {
+    if (_appSettings.isOfflineMode) {
+      return const Card(
+        child: ListTile(
+          enabled: false,
+          leading: Icon(Icons.cloud_off),
+          title: Text('pCloud'),
+          subtitle: Text('Unavailable in Offline mode.'),
+        ),
+      );
+    }
     if (!_pcloudAuth.isConnected) {
       return Card(
         child: ListTile(

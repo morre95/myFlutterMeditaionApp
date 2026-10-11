@@ -74,6 +74,24 @@ class PCloudDownloadController extends ChangeNotifier {
   /// The committed local copy of [source], if one is available offline.
   PCloudOfflineCopy? offlineCopyOf(AudioSource source) => stateOf(source).copy;
 
+  /// Copies currently advertised as available offline.
+  List<PCloudOfflineCopy> get offlineCopies => [
+    for (final state in _states.values) ?state.copy,
+  ];
+
+  /// The copy of [source] if its audio is still complete on disk; a copy
+  /// that vanished or shrank is forgotten, so it is never offline-ready.
+  Future<PCloudOfflineCopy?> verifiedCopyOf(AudioSource source) async {
+    final copy = offlineCopyOf(source);
+    if (copy == null) return null;
+    if (await _store.isIntact(copy)) return copy;
+    if (identical(offlineCopyOf(source), copy)) {
+      _states.remove(source.reference);
+      notifyListeners();
+    }
+    return null;
+  }
+
   /// Restores copies committed before the app restarted.
   Future<void> load() async {
     for (final copy in await _store.load()) {
@@ -160,6 +178,18 @@ class PCloudDownloadController extends ChangeNotifier {
     }
     if (received == 0 || (length != null && received != length)) {
       throw const _IncompleteTransfer();
+    }
+  }
+
+  /// Deletes the device copy of [source]; the pCloud file stays in the cloud
+  /// and can be downloaded again.
+  Future<void> remove(AudioSource source) async {
+    final copy = offlineCopyOf(source);
+    if (copy == null) return;
+    await _store.remove(copy);
+    if (identical(offlineCopyOf(source), copy)) {
+      _states.remove(source.reference);
+      notifyListeners();
     }
   }
 

@@ -12,11 +12,13 @@ import '../../history/application/history_controller.dart';
 import '../../library/application/local_wav_picker_service.dart'
     show ManagedLocalAudioPicker, LocalAudioFilePicker;
 import '../../library/presentation/pcloud_browser_screen.dart';
+import '../../library/application/device_sound_catalog.dart';
 import '../../library/application/local_audio_library.dart';
 import '../../player/application/local_audio_playback_controller.dart';
 import '../../playlists/application/playlist_controller.dart';
 import '../../playlists/application/playlist_playback_controller.dart';
 import '../../playlists/domain/playlist.dart';
+import '../../settings/application/app_settings_controller.dart';
 import '../application/audio_duration_probe.dart';
 import 'now_playing_screen.dart';
 import 'widgets/playback_timeline.dart';
@@ -64,6 +66,8 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
   PCloudAuthController? _pcloudAuth;
   PCloudService? _pcloudService;
   PCloudDownloadController? _pcloudDownloads;
+  AppSettingsController? _appSettings;
+  DeviceSoundCatalog? _deviceSounds;
 
   late final bool _ownsPlaylistPlaybackController;
   bool _dependenciesResolved = false;
@@ -102,6 +106,8 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     _pcloudAuth = widget._pcloudAuthController ?? scope?.pcloudAuthController;
     _pcloudService = widget._pcloudService ?? scope?.pcloudService;
     _pcloudDownloads = scope?.pcloudDownloadController;
+    _appSettings = scope?.appSettingsController;
+    _deviceSounds = scope?.deviceSoundCatalog;
     _ownsPlaylistPlaybackController = widget._playbackController != null;
     _playlistPlaybackController = _ownsPlaylistPlaybackController
         ? PlaylistPlaybackController(
@@ -162,14 +168,20 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     await _playlistController.delete(playlist.id);
   }
 
+  bool get _isOffline => _appSettings?.isOfflineMode ?? false;
+
+  /// Online every track is playable; Offline mode only plays device sounds.
+  bool _isPlayable(AudioSource source) =>
+      !_isOffline || (_deviceSounds?.isAvailableOffline(source) ?? true);
+
   /// Entry point for the "Add files" button. Offers local + pCloud sources when
-  /// pCloud is available; otherwise picks local files directly.
+  /// pCloud is available online; otherwise picks local files directly.
   Future<void> _onAddFiles() async {
     final playlistId = _playlistController.selectedId;
     if (playlistId == null) return;
 
     final auth = _pcloudAuth;
-    if (auth == null) {
+    if (auth == null || _isOffline) {
       await _pickAndAddFiles();
       return;
     }
@@ -285,9 +297,18 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
     }
   }
 
+  /// Plays the tracks of [playlist] that are playable now, skipping
+  /// pCloud tracks without a device copy in Offline mode.
   Future<void> _playPlaylist(Playlist playlist) async {
     final request = ++_playRequest;
-    await _playlistPlaybackController.playPlaylist(playlist);
+    await _playlistPlaybackController.playPlaylist(
+      playlist.copyWith(
+        tracks: [
+          for (final track in playlist.tracks)
+            if (_isPlayable(track.source)) track,
+        ],
+      ),
+    );
     if (!mounted ||
         request != _playRequest ||
         ModalRoute.of(context)?.isCurrent == false) {
@@ -387,6 +408,8 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
               _playbackController,
               _playlistPlaybackController,
               _favorites,
+              _appSettings,
+              _pcloudDownloads,
             ]),
             builder: (context, _) {
               if (_playlistController.isLoading) {
@@ -408,6 +431,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                     favorites: _favorites,
                     onCreate: _createPlaylist,
                     onSelect: _playlistController.select,
+                    isPlayable: _isPlayable,
                     onPlay: _playPlaylist,
                     onRename: _renamePlaylist,
                     onDelete: _deletePlaylist,
@@ -439,6 +463,7 @@ class _MusicModeScreenState extends State<MusicModeScreen> {
                       isPicking: _isPicking,
                       message: _message,
                       onAddFiles: _onAddFiles,
+                      isPlayable: _isPlayable,
                       onPlayTrack: (index) => _playTrack(selected, index),
                       onRemoveTrack: (track) => _removeTrack(selected, track),
                       onReorder: (o, n) => _reorderTrack(selected, o, n),
@@ -467,6 +492,7 @@ class _PlaylistListPanel extends StatelessWidget {
     required this.selectedId,
     required this.playbackState,
     required this.favorites,
+    required this.isPlayable,
     required this.onCreate,
     required this.onSelect,
     required this.onPlay,
@@ -479,6 +505,7 @@ class _PlaylistListPanel extends StatelessWidget {
   final String? selectedId;
   final PlaylistPlaybackState playbackState;
   final FavoritesController? favorites;
+  final bool Function(AudioSource source) isPlayable;
   final VoidCallback onCreate;
   final ValueChanged<String> onSelect;
   final ValueChanged<Playlist> onPlay;
@@ -563,9 +590,12 @@ class _PlaylistListPanel extends StatelessWidget {
                         ),
                       IconButton(
                         tooltip: 'Play ${playlist.name}',
-                        onPressed: playlist.tracks.isEmpty
-                            ? null
-                            : () => onPlay(playlist),
+                        onPressed:
+                            playlist.tracks.any(
+                              (track) => isPlayable(track.source),
+                            )
+                            ? () => onPlay(playlist)
+                            : null,
                         icon: const Icon(Icons.play_arrow),
                       ),
                       PopupMenuButton<_PlaylistAction>(
@@ -720,6 +750,7 @@ class _TrackListPanel extends StatelessWidget {
     required this.favorites,
     required this.isPicking,
     required this.message,
+    required this.isPlayable,
     required this.onAddFiles,
     required this.onPlayTrack,
     required this.onRemoveTrack,
@@ -732,6 +763,7 @@ class _TrackListPanel extends StatelessWidget {
   final FavoritesController? favorites;
   final bool isPicking;
   final String? message;
+  final bool Function(AudioSource source) isPlayable;
   final VoidCallback onAddFiles;
   final ValueChanged<int> onPlayTrack;
   final ValueChanged<PlaylistTrack> onRemoveTrack;
@@ -794,6 +826,7 @@ class _TrackListPanel extends StatelessWidget {
                   final track = tracks[index];
                   final isCurrentTrack =
                       playbackState.currentTrack?.id == track.id;
+                  final playable = isPlayable(track.source);
 
                   return ListTile(
                     key: ValueKey(track.id),
@@ -801,12 +834,18 @@ class _TrackListPanel extends StatelessWidget {
                     leading: Icon(
                       isCurrentTrack
                           ? Icons.volume_up
+                          : !playable
+                          ? Icons.cloud_off
                           : track.source.kind == AudioSourceKind.pCloud
                           ? Icons.cloud
                           : Icons.audio_file,
                     ),
                     title: Text(track.source.displayName),
-                    subtitle: Text(_trackSubtitle(track.source)),
+                    subtitle: Text(
+                      playable
+                          ? _trackSubtitle(track.source)
+                          : 'Not available offline',
+                    ),
                     trailing: Wrap(
                       spacing: 0,
                       children: [
@@ -827,7 +866,7 @@ class _TrackListPanel extends StatelessWidget {
                           ),
                         IconButton(
                           tooltip: 'Play ${track.source.displayName}',
-                          onPressed: () => onPlayTrack(index),
+                          onPressed: playable ? () => onPlayTrack(index) : null,
                           icon: const Icon(Icons.play_arrow),
                         ),
                         IconButton(

@@ -76,6 +76,24 @@ class LocalAudioLibrary {
     return sounds;
   }
 
+  /// Deletes the app-owned copy of the imported [sound]. Its directory comes
+  /// from the `import:` identity, so an original file is never touched.
+  ///
+  /// Renaming to a hidden name withdraws the sound at once; [loadSounds]
+  /// ignores the leftover if the delete then fails.
+  Future<void> removeSound(AudioSource sound) async {
+    const prefix = 'import:';
+    if (!sound.id.startsWith(prefix)) {
+      throw ArgumentError.value(sound.id, 'sound', 'is not an imported sound');
+    }
+    final root = await _root();
+    final id = sound.id.substring(prefix.length);
+    final withdrawn = await Directory(
+      path.join(root.path, id),
+    ).rename(path.join(root.path, '.$id-removed'));
+    await _deleteDirectory(withdrawn);
+  }
+
   Future<List<AudioSource>> importSources(
     List<AudioSource> sources, {
     AudioImportCancellation? cancellation,

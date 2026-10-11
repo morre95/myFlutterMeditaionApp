@@ -98,6 +98,34 @@ class PCloudDownloadStore {
     }
   }
 
+  /// Whether [copy]'s audio is still complete on disk.
+  Future<bool> isIntact(PCloudOfflineCopy copy) async {
+    try {
+      final audio = File(copy.path);
+      return await audio.exists() &&
+          await audio.length() == copy.source.storedSize;
+    } on FileSystemException catch (error) {
+      debugPrint('pCloud download ${copy.path} is unreadable: $error');
+      return false;
+    }
+  }
+
+  /// Deletes [copy] from the device; the pCloud file is untouched.
+  ///
+  /// Renaming to a hidden name withdraws the copy at once; if the delete
+  /// then fails, [load] removes the leftover like interrupted staging.
+  Future<void> remove(PCloudOfflineCopy copy) async {
+    final directory = Directory(path.dirname(copy.path));
+    final suffix = Random.secure().nextInt(1 << 32).toRadixString(16);
+    final withdrawn = await directory.rename(
+      path.join(
+        path.dirname(directory.path),
+        '.${copy.source.reference}-removed-$suffix',
+      ),
+    );
+    await withdrawn.delete(recursive: true);
+  }
+
   /// Writes [bytes] as the offline copy of [source] and commits it.
   Future<PCloudOfflineCopy> save(
     AudioSource source,
