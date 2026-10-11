@@ -12,7 +12,9 @@ import '../../player/domain/queue_entry.dart';
 import '../../settings/application/app_settings_controller.dart';
 import '../../timer/application/bell_ringer.dart';
 import '../../timer/domain/bell_selection.dart';
+import '../domain/meditation_checkpoint.dart';
 import '../domain/meditation_settings.dart';
+import '../infrastructure/shared_preferences_meditation_checkpoint_repository.dart';
 import '../infrastructure/shared_preferences_meditation_settings_repository.dart';
 
 /// Monotonic time since an arbitrary origin; only differences are meaningful.
@@ -69,6 +71,7 @@ class MeditationSessionController extends ChangeNotifier {
     required LocalAudioPlaybackController player,
     required BellRinger bell,
     required MeditationSettingsRepository repository,
+    required MeditationCheckpointRepository checkpoints,
     required PlaybackOwnershipController ownership,
     required AppSettingsController appSettings,
     required ElapsedClock clock,
@@ -77,6 +80,7 @@ class MeditationSessionController extends ChangeNotifier {
   }) : _player = player,
        _bell = bell,
        _repository = repository,
+       _checkpoints = checkpoints,
        _ownership = ownership,
        _appSettings = appSettings,
        _clock = clock,
@@ -95,9 +99,20 @@ class MeditationSessionController extends ChangeNotifier {
   static const Duration fadeDuration = Duration(seconds: 5);
   static const Duration _fadeStep = Duration(milliseconds: 100);
 
+  /// How often an active session's progress is made durable; termination can
+  /// lose at most this much active time plus storage flush latency.
+  static const Duration checkpointInterval = Duration(seconds: 5);
+
   final LocalAudioPlaybackController _player;
   final BellRinger _bell;
   final MeditationSettingsRepository _repository;
+  final MeditationCheckpointRepository _checkpoints;
+  Future<void> _checkpointWrites = Future<void>.value();
+  Timer? _checkpointTimer;
+
+  /// A restored session has nothing loaded natively until Resume.
+  bool _needsReload = false;
+  Duration _resumePosition = Duration.zero;
   final PlaybackOwnershipController _ownership;
   final AppSettingsController _appSettings;
   final ElapsedClock _clock;
@@ -236,18 +251,107 @@ class MeditationSessionController extends ChangeNotifier {
 
   bool get _isSetup => _state.status == MeditationSessionStatus.setup;
 
-  /// Restores the last choices. Call once at startup.
+  /// Restores the last choices and any unfinished session, paused. Call once
+  /// at startup.
   Future<void> load() async {
     final saved = await _repository.load();
-    if (saved == null || !_isSetup) return;
+    final checkpoint = await _loadCheckpoint();
+    if (!_isSetup) return;
+    if (saved != null) {
+      _setState(
+        _state.copyWith(
+          sound: saved.sound,
+          duration: _withinRange(saved.duration),
+          bell: saved.bell,
+          isBellEnabled: saved.isBellEnabled,
+        ),
+      );
+    }
+    if (checkpoint != null) _restore(checkpoint);
+  }
+
+  Future<MeditationCheckpoint?> _loadCheckpoint() async {
+    try {
+      return await _checkpoints.load();
+    } catch (error) {
+      debugPrint(
+        'Could not read unfinished meditation (${error.runtimeType}).',
+      );
+      _clearCheckpoint();
+      return null;
+    }
+  }
+
+  void _restore(MeditationCheckpoint checkpoint) {
+    _sessionId++;
+    _historySessionId = checkpoint.sessionId;
+    _activeElapsed = checkpoint.activeDuration;
+    _streamPosition = checkpoint.soundPosition;
+    _resumePosition = checkpoint.soundPosition;
+    final played = checkpoint.activeDuration - checkpoint.soundPosition;
+    _playThroughStart = played > Duration.zero ? played : Duration.zero;
+    _needsReload = true;
+    _entry = QueueEntry(
+      id: checkpoint.sound.id,
+      source: checkpoint.sound,
+      addedAt: DateTime.now(),
+    );
+    _checkpointTimer = Timer.periodic(checkpointInterval, (_) => _checkpoint());
     _setState(
       _state.copyWith(
-        sound: saved.sound,
-        duration: _withinRange(saved.duration),
-        bell: saved.bell,
-        isBellEnabled: saved.isBellEnabled,
+        status: MeditationSessionStatus.paused,
+        sound: checkpoint.sound,
+        duration: checkpoint.plannedDuration,
+        bell: checkpoint.bell,
+        isBellEnabled: checkpoint.isBellEnabled,
+        clearError: true,
       ),
     );
+  }
+
+  Duration get _soundPosition {
+    if (_isStream) return _streamPosition;
+    if (_needsReload) return _resumePosition;
+    final player = _player.state;
+    return identical(player.currentEntry, _entry)
+        ? player.position
+        : Duration.zero;
+  }
+
+  /// Saves progress while the session can advance; pauses save explicitly.
+  void _checkpoint() {
+    final status = _state.status;
+    if (status == MeditationSessionStatus.loading ||
+        status == MeditationSessionStatus.running) {
+      _saveCheckpoint();
+    }
+  }
+
+  void _saveCheckpoint() {
+    final id = _historySessionId;
+    final sound = _state.sound;
+    if (id == null || sound == null || _entry == null) return;
+    final checkpoint = MeditationCheckpoint(
+      sessionId: id,
+      sound: sound,
+      plannedDuration: _state.duration,
+      activeDuration: _state.duration - remaining,
+      soundPosition: _soundPosition,
+      bell: _state.bell,
+      isBellEnabled: _state.isBellEnabled,
+    );
+    _persistCheckpoint(() => _checkpoints.save(checkpoint));
+  }
+
+  void _clearCheckpoint() => _persistCheckpoint(_checkpoints.clear);
+
+  /// Serialized, so a slow earlier write never lands after a later one.
+  void _persistCheckpoint(Future<void> Function() write) {
+    _checkpointWrites = _checkpointWrites.then((_) => write()).catchError((
+      Object error,
+    ) {
+      debugPrint('Could not save meditation progress (${error.runtimeType}).');
+    });
   }
 
   void selectSound(AudioSource sound) =>
@@ -292,6 +396,7 @@ class MeditationSessionController extends ChangeNotifier {
     _historySessionId = newSessionId();
     final command = ++_command;
     _pendingPause = null;
+    _needsReload = false;
     _activeElapsed = Duration.zero;
     _streamPosition = Duration.zero;
     _playThroughStart = Duration.zero;
@@ -307,6 +412,9 @@ class MeditationSessionController extends ChangeNotifier {
         clearError: true,
       ),
     );
+    _saveCheckpoint();
+    _checkpointTimer?.cancel();
+    _checkpointTimer = Timer.periodic(checkpointInterval, (_) => _checkpoint());
     return _ownership.run(
       owner: this,
       deactivate: end,
@@ -468,7 +576,7 @@ class MeditationSessionController extends ChangeNotifier {
   }
 
   void _returnToSetup({String? errorMessage}) {
-    _recordOutcome(
+    _resolve(
       remaining == Duration.zero
           ? SessionOutcome.completed
           : SessionOutcome.endedEarly,
@@ -568,7 +676,7 @@ class MeditationSessionController extends ChangeNotifier {
     _stopCounting();
     _streamWatchdog?.cancel();
     final entry = _entry;
-    _recordOutcome(SessionOutcome.completed);
+    _resolve(SessionOutcome.completed);
     _pendingStops++;
     if (_state.isBellEnabled) _finishingBell = entry;
     _setState(_state.copyWith(status: MeditationSessionStatus.completed));
@@ -581,10 +689,14 @@ class MeditationSessionController extends ChangeNotifier {
     }
   }
 
-  void _recordOutcome(SessionOutcome outcome) {
+  /// Records the session once and drops its recovery checkpoint.
+  void _resolve(SessionOutcome outcome) {
     final id = _historySessionId;
     if (id == null) return;
     _historySessionId = null;
+    _checkpointTimer?.cancel();
+    _checkpointTimer = null;
+    _clearCheckpoint();
     final actual = _state.duration - remaining;
     unawaited(
       _history
@@ -655,6 +767,7 @@ class MeditationSessionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _checkpointTimer?.cancel();
     _streamWatchdog?.cancel();
     _deadline?.cancel();
     _refresh?.cancel();

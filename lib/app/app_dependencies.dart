@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../features/meditation/infrastructure/meditation_background_audio.dart';
 import '../features/library/application/local_audio_library.dart';
 import '../features/meditation/application/meditation_session_controller.dart';
+import '../features/meditation/infrastructure/shared_preferences_meditation_checkpoint_repository.dart';
 import '../features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
 import '../features/library/application/local_wav_picker_service.dart';
 import '../features/cloud/pcloud/application/pcloud_auth_controller.dart';
@@ -186,6 +187,7 @@ class AppDependencies {
           sourceResolver: playbackSourceResolver,
         ),
         repository: meditationSettingsRepository,
+        checkpoints: SharedPreferencesMeditationCheckpointRepository(),
         ownership: playbackOwnershipController,
         appSettings: appSettingsController,
         clock: clock,

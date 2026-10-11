@@ -6,6 +6,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:my_meditation_app/features/meditation/application/meditation_audio_handler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_meditation_app/features/meditation/application/meditation_session_controller.dart';
+import 'package:my_meditation_app/features/meditation/infrastructure/shared_preferences_meditation_checkpoint_repository.dart';
 import 'package:my_meditation_app/features/meditation/infrastructure/shared_preferences_meditation_settings_repository.dart';
 import 'package:my_meditation_app/features/player/application/local_audio_playback_controller.dart';
 import 'package:my_meditation_app/features/player/application/playback_ownership_controller.dart';
@@ -55,6 +56,7 @@ class _Harness {
         sourceResolver: bellResolver ?? const LocalPlaybackSourceResolver(),
       ),
       repository: SharedPreferencesMeditationSettingsRepository(),
+      checkpoints: SharedPreferencesMeditationCheckpointRepository(),
       ownership: ownership,
       appSettings: appSettings,
       clock: clock ?? () => async.elapsed,
@@ -88,6 +90,12 @@ class _Harness {
     player.dispose();
     appSettings.dispose();
     async.flushMicrotasks();
+  }
+
+  /// Terminates this process without End and launches on the same storage.
+  _Harness kill() {
+    dispose();
+    return _Harness(async);
   }
 }
 
@@ -191,6 +199,32 @@ void main() {
   });
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  group('recovery after termination', () {
+    test('a killed session relaunches paused at its last checkpoint', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 14));
+        h.audio.positions.add(const Duration(seconds: 14));
+        async.elapse(const Duration(seconds: 3));
+
+        final next = h.kill();
+        next.session.load();
+        async.flushMicrotasks();
+
+        expect(next.session.state.status, MeditationSessionStatus.paused);
+        expect(next.session.state.sound!.id, _rain.id);
+        expect(next.session.state.duration, const Duration(minutes: 1));
+        expect(next.session.remaining, const Duration(seconds: 45));
+        async.elapse(const Duration(minutes: 5));
+        expect(next.session.remaining, const Duration(seconds: 45));
+        expect(next.audio.loaded, isEmpty);
+        expect(next.audio.isPlaying, isFalse);
+        next.dispose();
+      });
+    });
+  });
 
   test('an interruption silences the ending bell without auto-resume', () {
     fakeAsync((async) {
