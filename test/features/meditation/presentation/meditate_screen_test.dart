@@ -101,14 +101,28 @@ class _App {
   }
 
   Future<void> open(WidgetTester tester) async {
-    await tester.pumpWidget(
-      AppScope(
-        dependencies: deps,
-        child: const MaterialApp(home: HomeScreen()),
-      ),
-    );
+    await _showHome(tester);
     await tester.tap(find.text('Meditate'));
     // The sound list spins until real I/O finishes, so frames never settle.
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+  }
+
+  Future<void> _showHome(WidgetTester tester) => tester.pumpWidget(
+    AppScope(
+      dependencies: deps,
+      child: const MaterialApp(home: HomeScreen()),
+    ),
+  );
+
+  /// Terminates the process without End and starts again on Home.
+  Future<void> kill(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    deps.meditationSessionController.dispose();
+    audio = _FakeLocalAudioPlayer();
+    deps = _launch();
+    await deps.init();
+    await _showHome(tester);
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
   }
@@ -309,6 +323,38 @@ void main() {
       await tester.tap(find.text('End'));
       await _pumpUntil(tester, find.text('Start'));
       expect(app.audio.isPlaying, isFalse);
+      await app.dispose(tester);
+    });
+  });
+
+  testWidgets('a terminated session relaunches paused until Resume or End', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      await app.open(tester);
+      await _chooseSound(tester, 'rain.wav');
+      await tester.tap(find.text('Start'));
+      await _pumpUntil(tester, find.text('Pause'));
+      app.now += const Duration(minutes: 1);
+      await tester.tap(find.text('Pause'));
+      await _pumpUntil(tester, find.text('Resume'));
+
+      await app.kill(tester);
+      await _pumpUntil(tester, find.text('Resume'));
+      expect(find.text('19:00'), findsOneWidget);
+      expect(find.text('End'), findsOneWidget);
+      expect(app.audio.loadCount, 0);
+      expect(app.audio.isPlaying, isFalse);
+
+      await tester.tap(find.text('Resume'));
+      await _pumpUntil(tester, find.text('Pause'));
+      expect(app.audio.loadedPath, app.sound!.reference);
+      expect(find.text('19:00'), findsOneWidget);
+      await tester.tap(find.text('End'));
+      await _pumpUntil(tester, find.text('Start'));
+      final recorded = app.deps.historyController.sessions.single;
+      expect(recorded.actualDuration, const Duration(minutes: 1));
       await app.dispose(tester);
     });
   });
