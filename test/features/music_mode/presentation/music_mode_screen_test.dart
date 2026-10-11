@@ -679,6 +679,16 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('Play Evening'));
         await tester.pumpAndSettle();
+        // Resolution verifies the copy on disk, which is real I/O.
+        for (
+          var i = 0;
+          i < 200 &&
+              deps.playbackController.state.status ==
+                  LocalPlaybackStatus.loading;
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
 
         expect(
           deps.playbackController.state.status,

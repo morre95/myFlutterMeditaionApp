@@ -83,6 +83,52 @@ void main() {
     },
   );
 
+  test('a vanished copy is no longer offline-ready', () async {
+    final root = await Directory.systemTemp.createTemp('resolver-missing-');
+    addTearDown(() => root.delete(recursive: true));
+    const source = AudioSource(
+      id: 'pcloud:100',
+      kind: AudioSourceKind.pCloud,
+      displayName: 'rain.mp3',
+      reference: '100',
+    );
+    final downloads = PCloudDownloadController(
+      service: PCloudService(
+        session: _FakeSession(),
+        client: MockClient((request) async {
+          if (request.url.path == '/getfilelink') {
+            return http.Response(
+              jsonEncode({
+                'result': 0,
+                'hosts': ['c1.pcloud.com'],
+                'path': '/dl/rain.mp3',
+              }),
+              200,
+            );
+          }
+          return http.Response.bytes([1, 2, 3], 200);
+        }),
+      ),
+      store: PCloudDownloadStore(directory: root),
+    );
+    await downloads.download(source);
+    await File(downloads.offlineCopyOf(source)!.path).delete();
+    final resolver = PCloudPlaybackSourceResolver(
+      service: serviceReturning('https://unused'),
+      downloads: downloads,
+      isOffline: () => true,
+    );
+
+    await expectLater(
+      resolver.resolve(source),
+      throwsA(isA<NotAvailableOfflineException>()),
+    );
+    expect(
+      downloads.stateOf(source).status,
+      PCloudDownloadStatus.notDownloaded,
+    );
+  });
+
   test('delegates local sources to the local resolver', () async {
     final resolver = PCloudPlaybackSourceResolver(
       service: serviceReturning('https://unused'),

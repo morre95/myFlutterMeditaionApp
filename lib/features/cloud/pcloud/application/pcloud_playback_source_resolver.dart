@@ -26,7 +26,7 @@ class PCloudPlaybackSourceResolver implements PlaybackSourceResolver {
   @override
   Future<PlayableMedia> resolve(AudioSource source) async {
     if (source.kind == AudioSourceKind.pCloud) {
-      final copy = _downloads.offlineCopyOf(source);
+      final copy = await _downloads.verifiedCopyOf(source);
       if (copy != null) return PlayableMedia.file(copy.path);
       if (_isOffline()) throw NotAvailableOfflineException(source);
       final url = await _service.getFileLink(source.reference);

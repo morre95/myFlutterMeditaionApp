@@ -98,6 +98,18 @@ class PCloudDownloadStore {
     }
   }
 
+  /// Whether [copy]'s audio is still complete on disk.
+  Future<bool> isIntact(PCloudOfflineCopy copy) async {
+    try {
+      final audio = File(copy.path);
+      return await audio.exists() &&
+          await audio.length() == copy.source.storedSize;
+    } on FileSystemException catch (error) {
+      debugPrint('pCloud download ${copy.path} is unreadable: $error');
+      return false;
+    }
+  }
+
   /// Writes [bytes] as the offline copy of [source] and commits it.
   Future<PCloudOfflineCopy> save(
     AudioSource source,
