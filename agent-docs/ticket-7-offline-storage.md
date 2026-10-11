@@ -63,10 +63,21 @@ that counts requests. Settings tests find bell switches by label, since
 Offline mode adds a `SwitchListTile`. Tap storage rows only after the route
 transition settles.
 
-Open: Music playlists are not filtered offline (undownloaded pCloud tracks
-stay listed and fail with "Could not play"); Library/Music pCloud browsing is
-still offered offline; Meditate still times a downloaded pCloud sound as a
-stream (`_isStream` is by kind, inherited from #5/#6). Pending for #11
+Music and Library offline (`ticket/7-offline-filter`):
+`DeviceSoundCatalog.isAvailableOffline` (imports, or pCloud sounds with an
+advertised copy; the resolver still verifies it on disk) is the one
+offline-availability check. Offline, Music marks undownloaded pCloud tracks
+"Not available offline" with Play disabled, plays a playlist with only its
+available tracks (Play disabled when none), and "Add files" picks device
+files without offering pCloud. Library shows the pCloud card disabled with
+"Unavailable in Offline mode.". Online is unchanged. Tests: Music offline
+listing/skip/zero requests and online playability; Library card in both
+modes.
+
+Open: Meditate still times a downloaded pCloud sound as a stream
+(`_isStream` is by kind, inherited from #5/#6). Switching to Offline mode
+while a playlist already plays does not re-filter its queue; an undownloaded
+next track then fails with "Could not play" (no cloud request). Pending for #11
 (device acceptance, not run here): airplane-mode Meditate/Music on Android,
 removal while a background session plays, storage sizes against Android
 settings, and persistence after a real restart.
