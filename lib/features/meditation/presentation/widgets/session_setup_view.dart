@@ -118,6 +118,7 @@ class _SessionSetupViewState extends State<SessionSetupView> {
                 if (selected != null && stored == null)
                   Text(selected.displayName),
                 if (snapshot.hasData &&
+                    available.isNotEmpty &&
                     state.sound != null &&
                     selected == null) ...[
                   const SizedBox(height: 8),
@@ -217,7 +218,9 @@ class _SoundPicker extends StatelessWidget {
       );
     }
     if (sounds.isEmpty) {
-      return const Text('Import a sound in Library to meditate with it.');
+      return const Text(
+        'No audio files available to play. Import a sound in Library.',
+      );
     }
     return DropdownButtonFormField<String>(
       key: const Key('meditate-sound-dropdown'),

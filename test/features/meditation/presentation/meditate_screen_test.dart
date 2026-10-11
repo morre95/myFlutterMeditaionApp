@@ -285,7 +285,9 @@ void main() {
       await app.open(tester);
       await _pumpUntil(
         tester,
-        find.text('Import a sound in Library to meditate with it.'),
+        find.text(
+          'No audio files available to play. Import a sound in Library.',
+        ),
       );
       final start = tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, 'Start'),
@@ -538,7 +540,7 @@ void main() {
     });
   });
 
-  testWidgets('a remembered sound that is gone explains why Start is off', (
+  testWidgets('an empty library hides the missing remembered sound error', (
     tester,
   ) async {
     await tester.runAsync(() async {
@@ -550,12 +552,58 @@ void main() {
       await app.relaunch(tester);
       await _pumpUntil(
         tester,
+        find.text(
+          'No audio files available to play. Import a sound in Library.',
+        ),
+      );
+      expect(
         find.text('rain.wav is no longer available. Choose another sound.'),
+        findsNothing,
       );
       final start = tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, 'Start'),
       );
       expect(start.onPressed, isNull);
+      await app.dispose(tester);
+    });
+  });
+
+  testWidgets('a missing remembered sound warns when other sounds remain', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final app = await _App.create();
+      await app.open(tester);
+      await _chooseSound(tester, 'rain.wav');
+      await app.download('ocean.mp3');
+      await File(app.sound!.reference).parent.delete(recursive: true);
+
+      await app.relaunch(tester);
+      await _pumpUntil(
+        tester,
+        find.text('rain.wav is no longer available. Choose another sound.'),
+      );
+      expect(
+        find.text(
+          'No audio files available to play. Import a sound in Library.',
+        ),
+        findsNothing,
+      );
+      final start = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Start'),
+      );
+      expect(start.onPressed, isNull);
+      await _chooseSound(tester, 'ocean.mp3');
+      expect(
+        find.text('rain.wav is no longer available. Choose another sound.'),
+        findsNothing,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Start'))
+            .onPressed,
+        isNotNull,
+      );
       await app.dispose(tester);
     });
   });
