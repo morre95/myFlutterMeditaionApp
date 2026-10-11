@@ -96,9 +96,12 @@ class _Harness {
   }
 
   /// Terminates this process without End and launches on the same storage.
-  _Harness kill({MeditationCheckpointRepository? checkpoints}) {
+  _Harness kill({
+    MeditationCheckpointRepository? checkpoints,
+    PlaybackSourceResolver? resolver,
+  }) {
     dispose();
-    return _Harness(async, checkpoints: checkpoints);
+    return _Harness(async, checkpoints: checkpoints, resolver: resolver);
   }
 }
 
@@ -346,6 +349,29 @@ void main() {
         final recorded = next.history.sessions.single;
         expect(recorded.actualDuration, const Duration(seconds: 15));
         expect(recorded.outcome, SessionOutcome.endedEarly);
+        next.dispose();
+      });
+    });
+
+    test('a restored stream resolves a fresh source at its position', () {
+      fakeAsync((async) {
+        final h = _Harness(async, resolver: _StreamResolver());
+        h.startWith(_cloud, const Duration(minutes: 1));
+        h.audio.positions.add(const Duration(seconds: 12));
+        async.elapse(const Duration(seconds: 5));
+        final resolver = _StreamResolver()..links = 1;
+        final next = h.kill(resolver: resolver);
+        next.session.load();
+        async.flushMicrotasks();
+        expect(next.session.remaining, const Duration(seconds: 48));
+
+        next.session.resume();
+        async.flushMicrotasks();
+        expect(next.audio.loaded, ['https://stream.example/2']);
+        expect(next.audio.seekPosition, const Duration(seconds: 12));
+        next.audio.positions.add(const Duration(seconds: 15));
+        async.flushMicrotasks();
+        expect(next.session.remaining, const Duration(seconds: 45));
         next.dispose();
       });
     });
