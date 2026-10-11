@@ -540,16 +540,28 @@ class MeditationSessionController extends ChangeNotifier {
       return;
     }
     if (!await _requestFocus(entry, command)) return;
-    if (_isStream) {
-      await _player.play(entry, position: _streamPosition);
-    } else if (_needsReload) {
-      await _player.play(entry, position: _resumePosition);
-    } else if (_player.state.status == LocalPlaybackStatus.paused) {
-      await _player.resume();
-    } else {
-      _playThroughStart = _activeElapsed;
-      await _player.play(entry);
+    Future<void> continuePlayback() async {
+      if (_isStream) {
+        await _player.play(entry, position: _streamPosition);
+      } else if (_needsReload) {
+        await _player.play(entry, position: _resumePosition);
+      } else if (_player.state.status == LocalPlaybackStatus.paused) {
+        await _player.resume();
+      } else {
+        _playThroughStart = _activeElapsed;
+        await _player.play(entry);
+      }
     }
+
+    if (identical(_ownership.activeOwner, this)) return continuePlayback();
+    // A restored session has not claimed playback in this process yet.
+    return _ownership.run(
+      owner: this,
+      deactivate: end,
+      action: continuePlayback,
+      canRun: () =>
+          !_disposed && identical(_entry, entry) && _command == command,
+    );
   }
 
   Future<bool> _requestFocus(QueueEntry entry, int command) async {

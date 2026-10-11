@@ -392,6 +392,39 @@ void main() {
       });
     });
 
+    test('a restored session waits silently and Resume takes over Music', () {
+      fakeAsync((async) {
+        final h = _Harness(async);
+        h.startWith(_rain, const Duration(minutes: 1));
+        async.elapse(const Duration(seconds: 17));
+        final next = h.kill();
+        final handler = MeditationAudioHandler(session: next.session);
+        final musicAudio = _AudioPlayer();
+        final musicPlayer = LocalAudioPlaybackController(player: musicAudio);
+        final music = PlaylistPlaybackController(
+          player: musicPlayer,
+          ownership: next.ownership,
+        );
+        next.session.load();
+        async.flushMicrotasks();
+        expect(handler.playbackState.value.playing, isFalse);
+        music.playPlaylist(_playlist());
+        async.flushMicrotasks();
+        expect(next.session.state.status, MeditationSessionStatus.paused);
+
+        next.session.resume();
+        async.flushMicrotasks();
+        expect(musicAudio.isPlaying, isFalse);
+        expect(next.audio.isPlaying, isTrue);
+        expect(handler.playbackState.value.playing, isTrue);
+
+        handler.dispose();
+        music.dispose();
+        musicPlayer.dispose();
+        next.dispose();
+      });
+    });
+
     test('Resume continues the remaining time from the saved position', () {
       fakeAsync((async) {
         final h = _Harness(async);
