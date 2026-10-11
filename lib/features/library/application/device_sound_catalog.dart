@@ -29,6 +29,14 @@ class DeviceSoundCatalog {
     return [...imports, ...downloads];
   }
 
+  /// Whether [sound] can play in Offline mode: a device file, or a pCloud
+  /// sound with a downloaded copy. Playback still verifies the copy on disk.
+  bool isAvailableOffline(AudioSource sound) => switch (sound.kind) {
+    AudioSourceKind.localFile => true,
+    AudioSourceKind.pCloud => _downloads.offlineCopyOf(sound) != null,
+    _ => false,
+  };
+
   /// Deletes the device copy of [sound] without touching its original file
   /// or cloud object. A sound used by an active session is kept.
   Future<void> remove(AudioSource sound) async {
