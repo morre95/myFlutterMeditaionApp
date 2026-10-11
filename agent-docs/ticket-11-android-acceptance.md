@@ -115,3 +115,6 @@ Pending, not claimed:
 - User-confirmed audibility of the fade, bell and loop on the locked phone.
 - A multi-day streak (needs history on consecutive days).
 - The Settings bell picker and Music "Add files" picking .m4a.
+
+The user accepted #11 for closing on 2026-10-11 with the items above still
+listed as pending. No result for those items was reported in the session.
