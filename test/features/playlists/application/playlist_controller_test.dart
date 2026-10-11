@@ -13,12 +13,15 @@ AudioSource _source(String id) => AudioSource(
 
 class _FakeRepo implements PlaylistRepository {
   final List<Playlist> _store = [];
+  Exception? saveError;
 
   @override
   Future<List<Playlist>> loadAll() async => List.from(_store);
 
   @override
   Future<void> saveAll(List<Playlist> playlists) async {
+    final error = saveError;
+    if (error != null) throw error;
     _store
       ..clear()
       ..addAll(playlists);
@@ -146,5 +149,203 @@ void main() {
 
     expect(c.selectedPlaylist!.tracks.map((t) => t.source.id), ['b', 'c', 'a']);
     c.dispose();
+  });
+
+  group('after a restart', () {
+    test('create never reuses a persisted playlist id', () async {
+      final repo = _FakeRepo();
+      final first = PlaylistController(repository: repo);
+      await first.load();
+      final existing = await first.create('Existing');
+      first.dispose();
+
+      final restarted = PlaylistController(repository: repo);
+      await restarted.load();
+      final created = await restarted.create('New');
+
+      expect(created.id, isNot(existing.id));
+      restarted.dispose();
+    });
+
+    test('addTracks never reuses a persisted track id', () async {
+      final repo = _FakeRepo();
+      final first = PlaylistController(repository: repo);
+      await first.load();
+      final existing = await first.create('Existing');
+      final existingTracks = await first.addTracks(existing.id, [
+        _source('a'),
+        _source('b'),
+      ]);
+      first.dispose();
+
+      final restarted = PlaylistController(repository: repo);
+      await restarted.load();
+      final created = await restarted.create('New');
+      final newTracks = await restarted.addTracks(created.id, [_source('c')]);
+      final extraTracks = await restarted.addTracks(existing.id, [
+        _source('d'),
+      ]);
+
+      final allIds = [
+        ...existingTracks,
+        ...newTracks,
+        ...extraTracks,
+      ].map((t) => t.id);
+      expect(allIds.toSet(), hasLength(4));
+      restarted.dispose();
+    });
+
+    test(
+      'removing a track added after restart keeps the persisted tracks',
+      () async {
+        final repo = _FakeRepo();
+        final first = PlaylistController(repository: repo);
+        await first.load();
+        final playlist = await first.create('Mix');
+        await first.addTracks(playlist.id, [_source('a')]);
+        first.dispose();
+
+        final restarted = PlaylistController(repository: repo);
+        await restarted.load();
+        final added = await restarted.addTracks(playlist.id, [_source('b')]);
+        await restarted.removeTrack(playlist.id, added.single.id);
+
+        expect(restarted.playlists.single.tracks.map((t) => t.source.id), [
+          'a',
+        ]);
+        restarted.dispose();
+      },
+    );
+  });
+
+  group('loading playlists persisted with duplicate ids', () {
+    PlaylistTrack track(String id, String sourceId) =>
+        PlaylistTrack(id: id, source: _source(sourceId));
+
+    Future<_FakeRepo> corruptRepo() async {
+      final repo = _FakeRepo();
+      await repo.saveAll([
+        Playlist(
+          id: 'playlist-0',
+          name: 'Morning',
+          tracks: [
+            track('track-0', 'a'),
+            track('track-1', 'b'),
+            track('track-1', 'c'),
+          ],
+          createdAt: DateTime(2026),
+        ),
+        Playlist(
+          id: 'playlist-0',
+          name: 'Evening',
+          tracks: [track('track-0', 'd'), track('track-2', 'e')],
+          createdAt: DateTime(2026, 2),
+        ),
+      ]);
+      return repo;
+    }
+
+    test('gives every playlist and track a unique id', () async {
+      final c = PlaylistController(repository: await corruptRepo());
+      await c.load();
+
+      final playlistIds = c.playlists.map((p) => p.id);
+      final trackIds = c.playlists.expand((p) => p.tracks).map((t) => t.id);
+      expect(playlistIds.toSet(), hasLength(2));
+      expect(trackIds.toSet(), hasLength(5));
+      c.dispose();
+    });
+
+    test('keeps every playlist and track in order', () async {
+      final c = PlaylistController(repository: await corruptRepo());
+      await c.load();
+
+      expect(c.playlists.map((p) => p.name), ['Morning', 'Evening']);
+      expect(c.playlists[0].tracks.map((t) => t.source.id), ['a', 'b', 'c']);
+      expect(c.playlists[1].tracks.map((t) => t.source.id), ['d', 'e']);
+      c.dispose();
+    });
+
+    test('the first occurrence keeps its id', () async {
+      final c = PlaylistController(repository: await corruptRepo());
+      await c.load();
+
+      expect(c.playlists[0].id, 'playlist-0');
+      expect(c.playlists[0].tracks.map((t) => t.id).take(2), [
+        'track-0',
+        'track-1',
+      ]);
+      expect(c.playlists[1].tracks.last.id, 'track-2');
+      c.dispose();
+    });
+
+    test('persists the repaired ids', () async {
+      final repo = await corruptRepo();
+      final c = PlaylistController(repository: repo);
+      await c.load();
+
+      final saved = await repo.loadAll();
+      expect(saved.map((p) => p.id), c.playlists.map((p) => p.id));
+      expect(
+        saved.expand((p) => p.tracks).map((t) => t.id),
+        c.playlists.expand((p) => p.tracks).map((t) => t.id),
+      );
+      c.dispose();
+    });
+
+    group('when saving the repair fails', () {
+      test(
+        'load still completes with unique ids and loading cleared',
+        () async {
+          final repo = await corruptRepo();
+          repo.saveError = Exception('storage unavailable');
+          final c = PlaylistController(repository: repo);
+          final loadingStates = <bool>[];
+          c.addListener(() => loadingStates.add(c.isLoading));
+
+          await c.load();
+
+          expect(c.isLoading, isFalse);
+          expect(loadingStates.last, isFalse);
+          expect(c.playlists.map((p) => p.id).toSet(), hasLength(2));
+          expect(
+            c.playlists.expand((p) => p.tracks).map((t) => t.id).toSet(),
+            hasLength(5),
+          );
+          c.dispose();
+        },
+      );
+
+      test('the next save persists the repaired ids', () async {
+        final repo = await corruptRepo();
+        repo.saveError = Exception('storage unavailable');
+        final c = PlaylistController(repository: repo);
+        await c.load();
+        repo.saveError = null;
+
+        await c.rename(c.playlists[1].id, 'Night');
+
+        final saved = await repo.loadAll();
+        expect(saved.map((p) => p.id), ['playlist-0', c.playlists[1].id]);
+        expect(saved.map((p) => p.id).toSet(), hasLength(2));
+        expect(
+          saved.expand((p) => p.tracks).map((t) => t.id).toSet(),
+          hasLength(5),
+        );
+        c.dispose();
+      });
+    });
+
+    test('removeTrack then removes only the chosen track', () async {
+      final c = PlaylistController(repository: await corruptRepo());
+      await c.load();
+      final second = c.playlists[1];
+
+      await c.removeTrack(second.id, second.tracks.first.id);
+
+      expect(c.playlists[0].tracks.map((t) => t.source.id), ['a', 'b', 'c']);
+      expect(c.playlists[1].tracks.map((t) => t.source.id), ['e']);
+      c.dispose();
+    });
   });
 }

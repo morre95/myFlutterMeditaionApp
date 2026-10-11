@@ -40,9 +40,11 @@ class PlatformFilePickerClient implements FilePickerClient {
 
   @override
   Future<List<LocalPickedFile>> pickAudioFiles() async {
+    // Pick by the audio type and filter extensions here: on Android a custom
+    // extension filter maps m4a to a MIME type MediaStore does not report for
+    // .m4a files (audio/mp4), so the system picker greys them out.
     final files = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: _supportedExtensions,
+      type: FileType.audio,
       dialogTitle: 'Select audio files',
     );
 
